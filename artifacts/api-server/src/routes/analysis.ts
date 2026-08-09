@@ -94,7 +94,32 @@ Prefer insight plus grounded visible evidence, such as:
 
 Never invent a value or guess text that is not clearly legible. Never force numerical evidence when the visual is qualitative. Keep the explanation concise; evidence should support the teaching insight rather than become a list of extracted labels.
 
-Apply this principle to big_takeaway, explanation, why_it_matters, and relationship_explanation where useful.`;
+Apply this principle to big_takeaway, explanation, why_it_matters, and relationship_explanation where useful.
+
+REGION/EXPLANATION CONSISTENCY
+
+A region's explanation must primarily explain the visual content inside that region's own bounding box.
+
+Before finalizing each region, internally verify:
+"Does this explanation describe the thing highlighted by this region?"
+If not, rewrite it.
+
+- explanation = what is visibly inside THIS region and what the viewer should notice here
+- why_it_matters = why THIS region matters to understanding the whole visual
+- relationship_explanation = where information about OTHER related regions belongs
+
+Do not make another region the main subject of explanation. Before returning JSON, verify that every region's label, bounding box, and explanation refer to the same visual concept.
+
+OUTPUT CONCISION
+
+Keep the teaching text concise while preserving grounded visible evidence:
+- overall_summary: maximum 2 concise sentences
+- big_takeaway: maximum 2 sentences
+- explanation: maximum 2 sentences
+- why_it_matters: maximum 2 sentences
+- relationship_explanation: maximum 2 sentences
+
+Do not list every visible value. Use only the evidence necessary to support the insight.`;
 
 function clamp01(n: number): number {
   return Math.min(1, Math.max(0, n));
@@ -125,10 +150,13 @@ router.post("/analyze", async (req, res) => {
     const completion = await openai.chat.completions.create({
       model: "gpt-5.6-sol",
       reasoning_effort: "low",
-      max_completion_tokens: 8192,
+      max_completion_tokens: 3500,
       response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        {
+          role: "system",
+          content: SYSTEM_PROMPT,
+        },
         {
           role: "user",
           content: [

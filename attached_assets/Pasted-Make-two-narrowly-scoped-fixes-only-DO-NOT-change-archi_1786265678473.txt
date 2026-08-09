@@ -1,0 +1,70 @@
+Make two narrowly scoped fixes only.
+
+DO NOT change architecture, UI, schema, coordinates, walkthrough logic, model, or reasoning effort.
+
+FIX 1 — REGION/EXPLANATION CONSISTENCY
+
+A region's `explanation` must primarily explain the visual content INSIDE that region's own bounding box.
+
+Before finalizing each region, internally verify:
+
+"Does this explanation describe the thing highlighted by this region?"
+
+If not, rewrite it.
+
+Rules:
+
+- `explanation` = what is visibly inside THIS region and what the viewer should notice here.
+- `why_it_matters` = why THIS region matters to understanding the whole visual.
+- `relationship_explanation` = where information about OTHER related regions belongs.
+
+Do not make another region the main subject of `explanation`.
+
+Example:
+
+If the selected region is "Rejected Energy", prefer:
+
+"The right side shows 61.5 quads flowing into Rejected Energy, compared with 32.1 quads reaching Energy Services."
+
+Do NOT use:
+
+"The Electricity Generation node receives 32 quads..."
+
+That belongs to the Electricity Generation region or to a relationship explanation.
+
+Before returning JSON, verify every region:
+region label ↔ bounding box ↔ explanation
+all refer to the same visual concept.
+
+FIX 2 — KEEP OUTPUT CONCISE FOR LATENCY
+
+Preserve grounded visible evidence, but reduce verbosity.
+
+Constraints:
+- overall_summary: maximum 2 concise sentences
+- big_takeaway: maximum 2 sentences
+- explanation: maximum 2 sentences
+- why_it_matters: maximum 2 sentences
+- relationship_explanation: maximum 2 sentences
+
+Do not list every visible value.
+Use only the evidence necessary to support the insight.
+
+Also reduce max_output_tokens from 8192 to 3500.
+Do not change reasoning effort from LOW.
+
+TESTING
+
+Do ONE real LLNL analysis only.
+
+Report only:
+1. Big Takeaway
+2. names of all selected regions
+3. Rejected Energy explanation
+4. Electricity Generation explanation
+5. latency
+
+Do not run subagents, audits, broad tests, refactors or extra model calls.
+
+COST CONTROL:
+Make only these two changes, typecheck once, run one LLNL request, then stop.

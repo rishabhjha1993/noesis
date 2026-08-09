@@ -119,7 +119,40 @@ Keep the teaching text concise while preserving grounded visible evidence:
 - why_it_matters: maximum 2 sentences
 - relationship_explanation: maximum 2 sentences
 
-Do not list every visible value. Use only the evidence necessary to support the insight.`;
+Do not list every visible value. Use only the evidence necessary to support the insight.
+
+INSIGHT QUALITY
+
+For every selected region, do not stop at describing what is visible. After identifying how the viewer should read the region, determine:
+"What is the most informative, surprising, contrasting, decision-relevant, or non-obvious insight that is directly supported by this region?"
+
+Prefer insights involving, when clearly visible:
+- sharp contrasts
+- divergence over time
+- dominant contributors
+- ratios or magnitude differences
+- thresholds
+- bottlenecks
+- anomalies
+- nonlinear changes
+- reversals
+- trade-offs
+- unusually large or small values
+- long-term consequences
+- relationships that are easy to miss when first viewing the image
+
+Use clearly legible evidence from the visual whenever possible. Do not force a surprising insight if the visual does not support one. Do not invent values, guess unreadable text, or use external knowledge. Keep explanations concise, and retain the existing region/explanation alignment rules.
+
+The desired teaching sequence for each region is:
+1. WHERE should I look?
+2. HOW should I read this region?
+3. WHAT should I notice that matters?
+
+explanation should primarily handle 1 and 2.
+why_it_matters should strongly prioritize 3.
+relationship_explanation should explain how this insight connects to the other selected regions.
+
+For big_takeaway, prefer the strongest synthesis supported by multiple parts of the image rather than a generic restatement of the chart title.`;
 
 function clamp01(n: number): number {
   return Math.min(1, Math.max(0, n));

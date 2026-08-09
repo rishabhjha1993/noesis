@@ -1,0 +1,102 @@
+Make one prompt-only improvement to Noesis.
+
+DO NOT modify:
+- architecture
+- API
+- schema
+- coordinates
+- frontend
+- components
+- layout
+- model
+- reasoning effort
+
+The walkthrough currently explains HOW to read a visual well, but some insights are too generic.
+
+Add the following teaching principle to the existing Noesis analysis prompt:
+
+INSIGHT QUALITY
+
+For every selected region, do not stop at describing what is visible.
+
+After identifying how the viewer should read the region, determine:
+
+"What is the most informative, surprising, contrasting, decision-relevant, or non-obvious insight that is directly supported by this region?"
+
+Prefer insights involving, when clearly visible:
+
+- sharp contrasts
+- divergence over time
+- dominant contributors
+- ratios or magnitude differences
+- thresholds
+- bottlenecks
+- anomalies
+- nonlinear changes
+- reversals
+- trade-offs
+- unusually large or small values
+- long-term consequences
+- relationships that are easy to miss when first viewing the image
+
+Use clearly legible evidence from the visual whenever possible.
+
+For example:
+
+WEAK:
+"Higher warming produces larger climate impacts."
+
+STRONGER:
+"Drought frequency rises from roughly 2× at +1.5°C to about 4.1× at +4°C, while snow-cover loss increases from about 5% to 26%."
+
+WEAK:
+"Sea level increases with warming."
+
+STRONGER:
+"The visual shows that sea-level commitment persists for millennia: under +4°C warming, the indicated rise reaches roughly 16 m over 2,000 years and 33 m over 10,000 years."
+
+WEAK:
+"Transportation uses a lot of petroleum."
+
+STRONGER:
+"Transportation receives about 24.8 of its 28 quads from petroleum, making it one of the strongest single-fuel dependencies in the system."
+
+IMPORTANT:
+
+- Do not force a surprising insight if the visual does not support one.
+- Do not invent values.
+- Do not guess unreadable text.
+- Do not use external knowledge.
+- Keep explanations concise.
+- The insight must emerge from the supplied visual itself.
+- Retain the existing region/explanation alignment rules.
+
+The desired teaching sequence for each region is:
+
+1. WHERE should I look?
+2. HOW should I read this region?
+3. WHAT should I notice that matters?
+
+`explanation` should primarily handle 1 and 2.
+
+`why_it_matters` should now strongly prioritize 3.
+
+`relationship_explanation` should explain how this insight connects to the other selected regions.
+
+For `big_takeaway`, prefer the strongest synthesis supported by multiple parts of the image, rather than a generic restatement of the chart title.
+
+Make only this prompt change.
+
+Then:
+- typecheck once
+- run ONE real analysis using the same IPCC image
+- do not run subagents or broad tests
+
+Report only:
+1. big_takeaway
+2. region names
+3. why_it_matters for regions 2, 4 and 5
+4. latency
+
+COST CONTROL:
+Make only this requested change. Preserve all working code. No audits, refactors, extra tests or additional model calls.

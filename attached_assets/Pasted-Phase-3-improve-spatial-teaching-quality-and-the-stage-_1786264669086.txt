@@ -1,0 +1,121 @@
+Phase 3: improve spatial teaching quality and the stage-demo layout.
+
+IMPORTANT:
+The real GPT-5.6 Sol pipeline is working.
+Do NOT change the API architecture.
+Do NOT change the model.
+Do NOT add features.
+Do NOT redesign the product.
+
+We are fixing two specific issues observed on the real LLNL Sankey test:
+
+1. Some explanatory regions are far too broad and overlap large unrelated parts of the image.
+2. On a laptop/showcase screen, the image and walkthrough explanation should be visible simultaneously without requiring the user to scroll below the image.
+
+PART A — IMPROVE REGION LOCALISATION
+
+Keep the existing Noesis prompt, but strengthen the region-coordinate instructions.
+
+Add these principles to the model prompt:
+
+SPATIAL LOCALISATION RULES
+
+Each selected region must correspond as tightly as practical to the visual structure being explained.
+
+The region should include enough context to understand the concept, but should NOT cover large unrelated areas merely because the concept connects to them.
+
+A good region:
+- encloses the main component, cluster, flow, panel or area being discussed
+- contains enough surrounding context to make the explanation understandable
+- avoids large blank areas
+- avoids swallowing other selected concepts unless overlap is genuinely necessary
+- remains comfortably clickable
+
+A bad region:
+- covers most of the image
+- spans large unrelated areas
+- exists primarily to encompass every connected element
+- overlaps several other regions without explanatory need
+
+When a relationship spans distant parts of the image:
+DO NOT create one enormous bounding box connecting them.
+
+Instead:
+- give each meaningful area its own region
+- use related_region_ids and relationship_explanation to express the connection
+
+Prefer spatially distinct regions whenever the visual permits it.
+
+Aim for region rectangles that usually occupy less than roughly 30% of total image area.
+This is a heuristic, not an absolute rule: use a larger region only when the concept genuinely occupies a large coherent area.
+
+Before returning coordinates, internally check:
+1. Does this rectangle contain the thing I am explaining?
+2. Does it contain large areas unrelated to that explanation?
+3. Could I tighten the rectangle while preserving useful context?
+4. Does it substantially overlap another selected region unnecessarily?
+
+If yes to 2 or 4, tighten or reconsider the region.
+
+Do NOT return a region for the chart title unless the title itself is genuinely necessary to teach the visual.
+
+Do NOT select decorative logos, footnotes, source text, or headers as explanatory regions unless essential.
+
+Continue returning exactly 4–6 regions.
+
+PART B — LAPTOP / STAGE LAYOUT
+
+Improve ResultScreen for desktop/laptop widths.
+
+At normal laptop widths, I want:
+
+LEFT: approximately 60–65% width
+- the complete visual
+- hotspots over it
+
+RIGHT: approximately 35–40% width
+- title / overview before walkthrough
+- current walkthrough explanation during walkthrough
+- Previous / Next controls
+
+The explanation panel should remain visible beside the image rather than falling below it at common laptop viewport widths.
+
+The whole primary interaction should ideally fit within one viewport height on a typical laptop.
+
+Requirements:
+- preserve image aspect ratio
+- do not crop the image
+- do not distort hotspot positioning
+- right panel may scroll internally only if necessary
+- keep text concise enough that the selected-region explanation is visible without excessive scrolling
+- do not shrink text to unreadable sizes
+- responsive stacking on genuinely narrow/mobile screens can remain
+
+During walkthrough:
+- current region should be strong and obvious
+- related regions should be subtly highlighted
+- unrelated hotspot borders should become much less visually prominent
+- avoid having six large translucent rectangles compete simultaneously
+
+PART C — TEST ONLY
+
+After making these changes:
+
+Run the real LLNL image again through GPT-5.6 Sol.
+
+Do not use manually corrected coordinates.
+
+Report:
+
+1. the 4–6 regions selected
+2. normalized coordinates for each
+3. approximate percentage of total image area occupied by each region
+4. which regions overlap and why
+5. screenshot of overview state
+6. screenshot of walkthrough step 1
+7. screenshot of the Rejected Energy step
+8. whether image + explanation are simultaneously visible at a 1440x900-ish laptop viewport
+9. whether any hotspot still feels unreasonably broad
+10. latency for this run
+
+Do not do anything else after this.

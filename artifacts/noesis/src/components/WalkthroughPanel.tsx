@@ -13,26 +13,26 @@ export function WalkthroughPanel({ analysis, stepIndex, setStepIndex, onReset }:
   if (stepIndex === -1) {
     return (
       <div className="flex flex-col h-full animate-in fade-in slide-in-from-right-4 duration-500">
-        <div className="flex items-center gap-3 text-muted-foreground mb-6 font-mono text-sm uppercase tracking-widest font-medium">
+        <div className="flex items-center gap-3 text-muted-foreground mb-4 font-mono text-xs uppercase tracking-widest font-medium">
           <Layers className="w-4 h-4 text-primary" />
           <span>{analysis.image_type}</span>
         </div>
         
-        <h2 className="text-3xl md:text-4xl font-semibold text-foreground mb-8 leading-tight font-serif tracking-tight">
+        <h2 className="text-3xl xl:text-4xl font-semibold text-foreground mb-6 leading-tight font-serif tracking-tight">
           {analysis.title}
         </h2>
         
-        <div className="space-y-8">
+        <div className="space-y-5">
           <div>
             <h3 className="text-xs font-mono text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
               <Info className="w-4 h-4" /> The Core Question
             </h3>
-            <p className="text-xl text-foreground/90 font-medium leading-relaxed">
+            <p className="text-lg text-foreground/90 font-medium leading-relaxed">
               {analysis.central_question}
             </p>
           </div>
           
-          <div className="bg-muted/40 p-6 md:p-8 rounded-xl border border-border/50">
+          <div className="bg-muted/40 p-5 rounded-xl border border-border/50">
             <h3 className="text-xs font-mono text-muted-foreground uppercase tracking-wider mb-3">
               Overview
             </h3>
@@ -41,20 +41,20 @@ export function WalkthroughPanel({ analysis, stepIndex, setStepIndex, onReset }:
             </p>
           </div>
           
-          <div className="bg-primary/5 border-l-4 border-primary p-6 md:p-8 rounded-r-xl">
+          <div className="bg-primary/5 border-l-4 border-primary p-5 rounded-r-xl">
             <h3 className="text-xs font-mono text-primary uppercase tracking-wider mb-3 flex items-center gap-2">
               <Lightbulb className="w-4 h-4" /> Big Takeaway
             </h3>
-            <p className="text-lg text-primary/90 font-medium leading-relaxed">
+            <p className="text-base text-primary/90 font-medium leading-relaxed">
               {analysis.big_takeaway}
             </p>
           </div>
         </div>
         
-        <div className="mt-12 flex flex-col gap-4">
+        <div className="mt-7 flex flex-col gap-2">
           <button 
             onClick={() => setStepIndex(0)}
-            className="w-full bg-primary text-primary-foreground py-4 rounded-lg font-medium text-lg tracking-wide hover:bg-primary/90 transition-all flex items-center justify-center gap-3 shadow-md group"
+            className="w-full bg-primary text-primary-foreground py-3.5 rounded-lg font-medium text-base tracking-wide hover:bg-primary/90 transition-all flex items-center justify-center gap-3 shadow-md group"
           >
             Start Walkthrough
             <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
@@ -109,23 +109,23 @@ export function WalkthroughPanel({ analysis, stepIndex, setStepIndex, onReset }:
 
   return (
     <div key={region.id} className="flex flex-col h-full animate-in slide-in-from-right-2 fade-in duration-300">
-      <div className="mb-10">
-        <div className="flex items-center gap-4 mb-6">
-          <span className="w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-mono font-bold text-xl shadow-sm shrink-0">
+      <div className="mb-6">
+        <div className="flex items-center gap-4 mb-4">
+          <span className="w-11 h-11 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-mono font-bold text-lg shadow-sm shrink-0">
             {region.sequence_order}
           </span>
-          <h2 className="text-2xl md:text-3xl font-serif font-semibold text-foreground tracking-tight leading-tight">
+          <h2 className="text-2xl xl:text-3xl font-serif font-semibold text-foreground tracking-tight leading-tight">
             {region.label}
           </h2>
         </div>
         
-        <p className="text-xl text-foreground/90 leading-relaxed font-medium">
+        <p className="text-lg text-foreground/90 leading-relaxed font-medium">
           {region.explanation}
         </p>
       </div>
 
-      <div className="space-y-6">
-        <div className="bg-muted/30 p-6 md:p-8 rounded-xl border border-border/50">
+      <div className="space-y-4">
+        <div className="bg-muted/30 p-5 rounded-xl border border-border/50">
           <h3 className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-3">
             Why it matters
           </h3>
@@ -135,7 +135,7 @@ export function WalkthroughPanel({ analysis, stepIndex, setStepIndex, onReset }:
         </div>
 
         {hasRelated && region.relationship_explanation && (
-          <div className="bg-primary/5 p-6 md:p-8 rounded-xl border border-primary/20">
+          <div className="bg-primary/5 p-5 rounded-xl border border-primary/20">
             <h3 className="text-xs font-mono text-primary uppercase tracking-widest mb-3 flex items-center gap-2">
               <BookOpen className="w-4 h-4" /> Connections
             </h3>

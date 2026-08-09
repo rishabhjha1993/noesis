@@ -17,7 +17,7 @@ export function VisualCanvas({ imageUrl, analysis, stepIndex, setStepIndex }: Vi
   const relatedRegionIds = currentRegion?.related_region_ids || [];
 
   return (
-    <div className="relative w-full h-full max-h-[85vh] flex items-center justify-center rounded-xl bg-card border border-border p-4 shadow-sm overflow-hidden">
+    <div className="relative w-full h-full min-h-0 flex items-center justify-center rounded-xl bg-card border border-border p-3 lg:p-4 shadow-sm overflow-hidden">
       {/* 
         CRITICAL: The container must be inline-block and shrink-wrap the image exactly,
         so that absolute percentage positioning for the hotspots aligns perfectly with the image contents.
@@ -27,13 +27,13 @@ export function VisualCanvas({ imageUrl, analysis, stepIndex, setStepIndex }: Vi
         <img 
           src={imageUrl} 
           alt="Analyzed visual" 
-          className="max-w-full max-h-[80vh] md:max-h-[75vh] block rounded-sm"
+          className="max-w-full max-h-[78vh] lg:max-h-[calc(100dvh-4rem)] block rounded-sm"
           style={{ width: 'auto', height: 'auto' }}
         />
         
         {analysis.regions.map((region, idx) => {
           // Determine state
-          let state: 'idle' | 'current' | 'related' = 'idle';
+          let state: 'idle' | 'current' | 'related' | 'dimmed' = 'idle';
           
           if (stepIndex === -1 || stepIndex === analysis.regions.length) {
             state = 'idle';
@@ -41,6 +41,8 @@ export function VisualCanvas({ imageUrl, analysis, stepIndex, setStepIndex }: Vi
             state = 'current';
           } else if (relatedRegionIds.includes(region.id)) {
             state = 'related';
+          } else {
+            state = 'dimmed';
           }
 
           return (

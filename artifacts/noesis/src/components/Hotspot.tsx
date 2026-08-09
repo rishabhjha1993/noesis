@@ -2,7 +2,7 @@ import { type NoesisRegion } from '../lib/types';
 
 interface HotspotProps {
   region: NoesisRegion;
-  state: 'idle' | 'current' | 'related';
+  state: 'idle' | 'current' | 'related' | 'dimmed';
   onClick: () => void;
 }
 
@@ -28,6 +28,10 @@ export function Hotspot({ region, state, onClick }: HotspotProps) {
     case 'related':
       boxClasses += "border-[2px] border-dashed border-primary/50 bg-primary/5 z-10";
       markerClasses += "bg-primary/90 text-primary-foreground scale-95 opacity-90";
+      break;
+    case 'dimmed':
+      boxClasses += "border border-foreground/10 bg-transparent hover:border-foreground/30 hover:bg-card/10 z-0";
+      markerClasses += "bg-card/80 text-muted-foreground border-border/50 scale-75 opacity-35 hover:opacity-80";
       break;
     case 'idle':
     default:

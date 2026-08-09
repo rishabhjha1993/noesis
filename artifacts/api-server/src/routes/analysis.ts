@@ -35,7 +35,52 @@ Rules:
 - x + width and y + height must each stay within 0 and 1.
 - Provide 4-6 regions forming a logical reading order for a newcomer.
 - related_region_ids must only reference ids present in the regions array.
-- Output ONLY the JSON object, nothing else.`;
+- Output ONLY the JSON object, nothing else.
+
+SPATIAL LOCALISATION RULES
+
+Each selected region must correspond as tightly as practical to the visual structure being explained.
+
+The region should include enough context to understand the concept, but should NOT cover large unrelated areas merely because the concept connects to them.
+
+A good region:
+- encloses the main component, cluster, flow, panel or area being discussed
+- contains enough surrounding context to make the explanation understandable
+- avoids large blank areas
+- avoids swallowing other selected concepts unless overlap is genuinely necessary
+- remains comfortably clickable
+
+A bad region:
+- covers most of the image
+- spans large unrelated areas
+- exists primarily to encompass every connected element
+- overlaps several other regions without explanatory need
+
+When a relationship spans distant parts of the image:
+DO NOT create one enormous bounding box connecting them.
+
+Instead:
+- give each meaningful area its own region
+- use related_region_ids and relationship_explanation to express the connection
+
+Prefer spatially distinct regions whenever the visual permits it.
+
+Aim for region rectangles that usually occupy less than roughly 30% of total image area.
+This is a heuristic, not an absolute rule: use a larger region only when the concept genuinely occupies a large coherent area.
+
+Before returning coordinates, internally check:
+1. Does this rectangle contain the thing I am explaining?
+2. Does it contain large areas unrelated to that explanation?
+3. Could I tighten the rectangle while preserving useful context?
+4. Does it substantially overlap another selected region unnecessarily?
+
+If yes to 2 or 4, tighten or reconsider the region.
+
+Do NOT return a region for the chart title unless the title itself is genuinely necessary to teach the visual.
+
+Do NOT select decorative logos, footnotes, source text, or headers as explanatory regions unless essential.
+
+Continue returning exactly 4–6 regions.`;
 
 function clamp01(n: number): number {
   return Math.min(1, Math.max(0, n));
@@ -64,7 +109,8 @@ router.post("/analyze", async (req, res) => {
   try {
     const openai = new OpenAI({ apiKey });
     const completion = await openai.chat.completions.create({
-      model: "gpt-5",
+      model: "gpt-5.6-sol",
+      reasoning_effort: "low",
       max_completion_tokens: 8192,
       response_format: { type: "json_object" },
       messages: [

@@ -6,27 +6,18 @@ const MESSAGES = [
   "Building your walkthrough..."
 ];
 
-export function LoadingScreen({ onComplete }: { onComplete: () => void }) {
+// Purely presentational: the parent (App) drives the transition to the
+// result screen when the real analysis request completes.
+export function LoadingScreen() {
   const [msgIndex, setMsgIndex] = useState(0);
 
   useEffect(() => {
-    // Total delay ~3s. 3 messages, so ~1s each.
     const interval = setInterval(() => {
-      setMsgIndex(prev => {
-        if (prev < MESSAGES.length - 1) return prev + 1;
-        return prev;
-      });
-    }, 1000);
+      setMsgIndex(prev => (prev + 1) % MESSAGES.length);
+    }, 1600);
 
-    const timeout = setTimeout(() => {
-      onComplete();
-    }, 3200);
-
-    return () => {
-      clearInterval(interval);
-      clearTimeout(timeout);
-    };
-  }, [onComplete]);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-6 min-h-screen bg-background">

@@ -24,9 +24,10 @@ Noesis helps users understand complex visuals by teaching them how to read the v
 
 ## Architecture decisions
 
-- First build is intentionally frontend-only: mocked analysis, no AI, no API, no DB (user requirement). The AI swap replaces `mockAnalysis` with an API call; the `NoesisAnalysis` contract is the stable seam.
+- Analysis is real: `POST /api/analyze` (`artifacts/api-server/src/routes/analyze.ts`) sends the uploaded image (base64) to OpenAI `gpt-5.6-sol` via the Responses API with `reasoning: { effort: "low" }`, strict JSON-schema Structured Outputs, image `detail: "original"`, a 90s upstream timeout, and server-side Zod validation of the model output. The key stays server-side (`OPENAI_API_KEY` secret). `mockAnalysis.ts` is retained for dev but never used as a silent fallback.
+- Contract seam: `src/lib/types.ts` (`NoesisAnalysis`) is the stable frontend contract; `lib/api-spec/openapi.yaml` mirrors it (Orval codegen for hooks + Zod).
 - Hotspots render with pure percentage positioning inside an image-sized `inline-block` relative wrapper so they stay aligned on any resize — never pixel-measured.
-- The uploaded image object URL is owned by `App.tsx` and revoked via effect cleanup on replacement/reset/unmount.
+- The uploaded image object URL is owned by `App.tsx` and revoked via effect cleanup on replacement/reset/unmount; analysis requests carry a monotonic sequence ID so stale completions can't clobber newer state.
 
 ## Product
 

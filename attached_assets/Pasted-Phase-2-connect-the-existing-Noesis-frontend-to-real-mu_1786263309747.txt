@@ -1,0 +1,339 @@
+Phase 2: connect the existing Noesis frontend to real multimodal AI analysis.
+
+IMPORTANT:
+The existing frontend is working and has already been tested end to end.
+
+DO NOT redesign the application.
+DO NOT change the walkthrough UX.
+DO NOT add features.
+DO NOT change the visual styling unless absolutely required for an error/loading state.
+
+Your job in this phase is only to replace the mocked analysis with real analysis from GPT-5.6 Sol.
+
+CURRENT APP
+This is the existing Vite + React + TypeScript + Tailwind app under artifacts/noesis.
+
+The existing stable frontend contract is:
+
+src/lib/types.ts
+- NoesisAnalysis
+- NoesisRegion
+
+The current mocked analysis is:
+
+src/lib/mockAnalysis.ts
+
+The result screen, VisualCanvas, hotspots, walkthrough and relationship highlighting already consume this contract correctly.
+
+We now need:
+
+uploaded image
+→ server-side endpoint
+→ GPT-5.6 Sol multimodal analysis
+→ structured NoesisAnalysis JSON
+→ existing frontend
+
+MODEL
+
+Use the official OpenAI JavaScript SDK.
+
+Use:
+model: gpt-5.6-sol
+
+Use the Responses API.
+
+Set reasoning effort to LOW initially because this is a live, latency-sensitive demo.
+
+The model receives the ORIGINAL UPLOADED IMAGE as image input.
+
+Do not perform a separate OCR step.
+Do not use another vision provider.
+Do not use another model.
+
+SECURITY
+
+The OpenAI API key is stored in the Replit secret:
+
+OPENAI_API_KEY
+
+The API key must NEVER be exposed to browser/client code.
+
+Create the smallest server-side architecture compatible with this existing Vite/Replit app.
+
+Inspect the current scaffold and choose the simplest reliable server-side endpoint architecture.
+
+The frontend should call:
+
+POST /api/analyze
+
+Do not hardcode secrets.
+
+STRUCTURED OUTPUT
+
+The response MUST conform to the existing NoesisAnalysis contract.
+
+Required shape:
+
+{
+  "title": "string",
+  "image_type": "string",
+  "central_question": "string",
+  "overall_summary": "string",
+  "big_takeaway": "string",
+  "regions": [
+    {
+      "id": "string",
+      "label": "string",
+      "x": 0.0,
+      "y": 0.0,
+      "width": 0.0,
+      "height": 0.0,
+      "sequence_order": 1,
+      "explanation": "string",
+      "why_it_matters": "string",
+      "related_region_ids": ["string"],
+      "relationship_explanation": "string",
+      "confidence": 0.0
+    }
+  ]
+}
+
+Use Structured Outputs / a strict JSON schema if supported by the current official SDK.
+
+Validate the response server-side before returning it to the frontend.
+
+REGION RULES
+
+Return exactly 4–6 regions.
+
+Coordinates must be NORMALIZED between 0 and 1 relative to the entire image:
+
+x = left edge
+y = top edge
+width = region width
+height = region height
+
+All x, y, width, height values must be between 0 and 1.
+
+x + width must not exceed 1.
+y + height must not exceed 1.
+
+Prefer BROAD explanatory regions rather than pixel-perfect small boxes.
+
+This is important because the purpose is spatial teaching, not object detection.
+
+MODEL PROMPT
+
+Use the following as the core Noesis analysis prompt:
+
+"You are Noesis, an AI system that teaches people HOW TO READ complex visuals.
+
+The user has supplied one visual. It may be a chart, Sankey diagram, architecture diagram, dashboard, scientific figure, process flow, map, infographic, slide, form, UI screenshot, network diagram, or another information-dense visual.
+
+Your goal is NOT to describe every visible object.
+
+Your goal is to transform the visual into a guided learning experience.
+
+FIRST analyse the visual as a whole.
+
+Determine:
+
+1. What kind of visual is this?
+2. What is its apparent purpose?
+3. What central question does it help answer?
+4. What are the most important relationships, patterns, flows, comparisons, dependencies, transitions, anomalies, or conclusions?
+5. What does a viewer need to notice, and in what order, to build a correct mental model of the visual?
+
+Then construct the Noesis walkthrough.
+
+TITLE
+Give the visual a concise descriptive title grounded in what is visible.
+
+IMAGE TYPE
+Identify the type of visual.
+
+CENTRAL QUESTION
+Write the single most useful question that this visual helps the viewer answer.
+
+OVERALL SUMMARY
+In 2–3 concise sentences, explain what the viewer is looking at and how the visual is structured.
+
+BIG TAKEAWAY
+State the most important insight that is directly supported by the visual.
+
+REGIONS
+
+Choose exactly 4–6 explanatory regions.
+
+The selected regions must TOGETHER teach the viewer how to understand the whole visual.
+
+Do NOT simply choose the largest objects.
+
+Do NOT simply identify labels.
+
+Do NOT choose six isolated objects when relationships or flows are more important.
+
+Prefer regions representing things such as:
+
+- an important system component
+- a major flow or transition
+- a meaningful cluster
+- a critical comparison
+- an important dependency
+- a major conversion point
+- an anomaly
+- a key result
+- a necessary legend/axis only when needed to interpret the rest
+- an important beginning/end state
+
+The regions should be complementary rather than repetitive.
+
+GUIDED ORDER
+
+sequence_order defines the order in which a good teacher would walk a first-time viewer through this image.
+
+Ask:
+
+'Where should I direct the viewer's attention first?'
+
+Then:
+
+'What should they notice next so the previous point makes more sense?'
+
+Continue until the visual's key insight becomes understandable.
+
+EXPLANATION
+
+For each region:
+
+explanation:
+Explain what the viewer should notice here in plain English.
+
+why_it_matters:
+Explain why this region is important to understanding the whole visual.
+
+related_region_ids:
+Identify other selected regions whose relationship to this region materially helps understanding.
+
+relationship_explanation:
+Explain the meaningful relationship between this region and its related regions.
+
+CONFIDENCE
+
+Return confidence from 0 to 1 based on how clearly the interpretation is supported by the image.
+
+GROUNDING RULES
+
+Only make claims supported by the supplied visual.
+
+Do not invent unreadable labels or values.
+
+Do not infer causality unless the visual actually supports it.
+
+Do not use external factual knowledge to fill gaps in the image.
+
+If something is uncertain, say so through lower confidence rather than pretending certainty.
+
+Select regions for EXPLANATORY VALUE, not merely visual salience.
+
+Prefer broad, clickable regions.
+
+The goal is teaching quality, not object detection.
+
+SUCCESS CRITERION
+
+After completing the guided walkthrough, a viewer who initially found the image confusing should understand:
+
+- what the visual is showing
+- how its important parts relate
+- how to read it
+- what its main insight is."
+
+FRONTEND INTEGRATION
+
+Currently the app uses mockAnalysis.
+
+Change the flow so that:
+
+1. User uploads image.
+2. Image preview continues to work exactly as now.
+3. User clicks "X-Ray this visual".
+4. Existing loading screen appears.
+5. Send the image to POST /api/analyze.
+6. Server sends image + Noesis prompt to GPT-5.6 Sol.
+7. Server validates structured NoesisAnalysis output.
+8. Frontend receives NoesisAnalysis.
+9. Existing ResultScreen and walkthrough use the real response instead of mockAnalysis.
+
+IMPORTANT:
+The artificial 2–3 second mocked loading delay is no longer necessary.
+
+The loading screen should stay visible for the actual API request duration and transition immediately once analysis succeeds.
+
+ERROR HANDLING
+
+If analysis fails:
+
+- do not crash
+- do not silently substitute the U.S. Energy mock data
+- show a concise user-facing error
+- offer "Try again"
+- retain the uploaded image
+
+Keep mockAnalysis.ts in the codebase for development/testing, but do not use it as a silent production fallback.
+
+IMAGE HANDLING
+
+Support the existing PNG/JPG/JPEG/WebP inputs.
+
+Keep image sizes sensible for latency, but preserve enough resolution for dense diagrams and labels.
+
+Do not aggressively shrink information-dense images.
+
+For GPT-5.6 image detail, prefer a setting appropriate for dense visuals. Use original/auto image detail if supported by the current API/SDK implementation, while avoiding unnecessary transformations.
+
+TESTING
+
+After implementation:
+
+1. typecheck
+2. production build
+3. run a real analysis using an uploaded test image
+4. verify returned JSON satisfies NoesisAnalysis
+5. verify 4–6 regions are returned
+6. verify all normalized coordinates are valid
+7. verify real hotspots render
+8. verify Start Walkthrough works
+9. verify sequence order works
+10. verify related-region highlighting works
+11. verify conclusion shows the real big_takeaway
+12. verify browser resize keeps real hotspots aligned
+
+DO NOT:
+- add chat
+- add user accounts
+- add a database
+- add PDF support
+- add another AI model
+- add OCR
+- add web search
+- add export
+- add history
+- add voice
+- redesign the interface
+- expand scope
+
+When finished, report:
+
+1. server architecture you added
+2. files created/modified
+3. exact OpenAI model and reasoning setting used
+4. whether Structured Outputs are enforced
+5. whether the API key remains server-side
+6. latency observed on the real test
+7. actual model output for one test image
+8. whether all 4–6 hotspots rendered correctly
+9. any coordinate/localisation issues
+10. anything that still needs fixing
+
+Do not proceed to any additional feature after this.

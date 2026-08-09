@@ -27,4 +27,4 @@ export interface NoesisAnalysis {
   regions: NoesisRegion[];
 }
 
-export type NoesisScreen = "upload" | "loading" | "result";
+export type NoesisScreen = "upload" | "loading" | "result" | "error";

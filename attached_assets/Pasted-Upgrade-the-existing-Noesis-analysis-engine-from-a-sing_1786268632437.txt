@@ -1,0 +1,773 @@
+Upgrade the existing Noesis analysis engine from a single-pass multimodal prompt into a two-pass evidence-first analysis pipeline.
+
+This is a targeted backend intelligence upgrade.
+
+DO NOT redesign the frontend.
+DO NOT change the existing walkthrough interaction.
+DO NOT change hotspot rendering.
+DO NOT add new user-facing features.
+
+The goal is to materially improve the QUALITY, SPECIFICITY, NUMERIC DEPTH, and NON-OBVIOUSNESS of Noesis insights.
+
+==================================================
+CURRENT PRODUCT
+==================================================
+
+Noesis currently works end to end:
+
+Image upload
+→ GPT-5.6 Sol multimodal analysis
+→ structured NoesisAnalysis JSON
+→ spatial hotspots
+→ guided walkthrough
+
+The existing frontend and public NoesisAnalysis schema are working.
+
+The current strengths are:
+- visual understanding
+- spatial localization
+- identifying meaningful regions
+- explaining how to read a visual
+
+The current weakness is:
+- insights are often generic
+- numeric relationships are missed
+- the model sometimes explains the diagram rather than analysing the underlying subject
+- examples:
+  "This is an interconnected network."
+  "Higher warming creates larger impacts."
+  "Different pathways produce different outcomes."
+
+We want output closer to:
+
+"Rejected energy is about 1.9× useful Energy Services: 61.5 versus 32.1 quads."
+
+"About 89% of the transportation energy shown comes from petroleum: 24.8 of 28 quads."
+
+"Drought frequency rises from about 2× at +1.5°C to 4.1× at +4°C."
+
+The system should find the strongest evidence-backed insight a careful viewer might otherwise miss.
+
+==================================================
+NON-NEGOTIABLE CONSTRAINTS
+==================================================
+
+Preserve:
+
+- existing POST /api/analyze endpoint
+- existing frontend
+- existing public NoesisAnalysis response schema
+- existing normalized hotspot coordinate system
+- existing walkthrough logic
+- GPT-5.6 Sol
+- image detail: original
+- existing error handling, timeout, rate limits and API-key security
+
+Do NOT add:
+
+- auth
+- database
+- chat
+- PDF support
+- OCR service
+- another model provider
+- web search
+- external factual enrichment
+- image-density / OpenCV / CV algorithms in this iteration
+- unrelated refactors
+
+Do not use outside knowledge to analyse an uploaded visual.
+
+The image remains the source of truth.
+
+==================================================
+NEW INTERNAL ARCHITECTURE
+==================================================
+
+Change the backend flow internally to:
+
+UPLOADED IMAGE
+        ↓
+PASS 1 — VISUAL EVIDENCE EXTRACTION
+        ↓
+DETERMINISTIC NUMERIC ANALYSIS
+        ↓
+PASS 2 — INSIGHT GENERATION + SELF-CRITIQUE
+        ↓
+EXISTING NoesisAnalysis JSON
+        ↓
+EXISTING FRONTEND
+
+These intermediate stages are server-side only.
+
+Do not expose them to the frontend.
+
+==================================================
+PASS 1 — VISUAL EVIDENCE EXTRACTION
+==================================================
+
+Use:
+
+model: gpt-5.6-sol
+reasoning effort: low
+image detail: original
+
+Pass 1 is NOT a teaching or writing task.
+
+Its job is to extract a structured evidence map from the visual.
+
+Create an internal strict Structured Output schema.
+
+Suggested types:
+
+VisualEvidence {
+  image_type: string
+  apparent_purpose: string
+  visual_structure: string
+  candidate_regions: CandidateRegion[]
+  numeric_facts: NumericFact[]
+  categorical_facts: CategoricalFact[]
+  structural_observations: StructuralObservation[]
+  relationships: Relationship[]
+}
+
+CandidateRegion {
+  id: string
+  label: string
+  x: number
+  y: number
+  width: number
+  height: number
+  visible_content: string
+  confidence: number
+}
+
+NumericFact {
+  id: string
+  region_id: string | null
+  subject: string
+  value: number
+  unit: string
+  qualifier: string | null
+  context: string
+  confidence: number
+}
+
+CategoricalFact {
+  id: string
+  region_id: string | null
+  subject: string
+  category_or_state: string
+  context: string
+  confidence: number
+}
+
+StructuralObservation {
+  id: string
+  region_id: string | null
+  observation: string
+  confidence: number
+}
+
+Relationship {
+  id: string
+  from_region_id: string | null
+  to_region_id: string | null
+  relationship: string
+  supporting_fact_ids: string[]
+  confidence: number
+}
+
+==================================================
+PASS 1 PROMPT
+==================================================
+
+Use a dedicated prompt with approximately this logic:
+
+"You are the evidence-extraction layer for Noesis.
+
+Analyse the supplied visual as a source of evidence.
+
+Do NOT produce polished explanations.
+Do NOT generate the final walkthrough.
+Do NOT decide what is interesting yet.
+
+Extract what is clearly visible.
+
+First identify:
+- visual type
+- apparent purpose
+- overall visual structure
+
+Then identify candidate regions that correspond to meaningful visual components, panels, flows, clusters, maps, charts, or system areas.
+
+Extract clearly legible numerical facts whenever possible.
+
+For every number preserve:
+- subject
+- value
+- unit
+- context
+- region
+- confidence
+
+Also extract:
+- categorical states
+- visible structural patterns
+- flows
+- clusters
+- dense versus sparse areas
+- divergence
+- major nodes
+- transitions
+- comparisons represented by the visual
+- explicit relationships
+
+GROUNDING RULES:
+
+Only extract what the image supports.
+
+Never invent unreadable text.
+
+Never estimate a precise number if it is not legible.
+
+Never use external knowledge.
+
+Never infer causality unless the visual explicitly represents it.
+
+Prefer evidence recall and faithful structure over polished prose.
+
+Coordinates must remain normalized from 0 to 1."
+
+Use strict Structured Outputs.
+
+Validate the result server-side.
+
+==================================================
+DETERMINISTIC NUMERIC ANALYSIS
+==================================================
+
+After Pass 1, run code over the extracted facts.
+
+Do NOT ask the LLM to perform all arithmetic mentally.
+
+Create an internal type such as:
+
+ComputedEvidence {
+  id: string
+  type: string
+  description: string
+  value: number | null
+  unit: string | null
+  formula: string
+  supporting_fact_ids: string[]
+  confidence: number
+}
+
+Generate calculations ONLY where the facts are semantically and dimensionally compatible.
+
+Useful calculations include:
+
+1. ratios
+   A / B
+
+2. absolute differences
+   A - B
+
+3. percentage shares
+   component / total
+
+4. percentage changes
+   (new - old) / old
+
+5. rankings
+   largest / smallest
+
+6. range / scenario spread
+   max - min
+
+7. multiplicative change
+   final / initial
+
+8. contribution shares
+   if a clearly visible total exists
+
+9. differences between explicitly comparable scenarios or time points
+
+Examples:
+
+61.5 rejected energy
+32.1 energy services
+
+Compute:
+61.5 / 32.1 = 1.916
+
+Candidate:
+"Rejected energy is about 1.9× useful Energy Services."
+
+24.8 petroleum-to-transportation
+28 total transportation
+
+Compute:
+24.8 / 28 = 0.886
+
+Candidate:
+"About 89% of the transportation energy shown comes from petroleum."
+
+IMPORTANT SAFETY RULES:
+
+Do NOT calculate ratios between quantities with incompatible units.
+
+Do NOT compare values that refer to materially different contexts unless the visual explicitly frames them as comparable.
+
+Do NOT infer missing totals.
+
+Do NOT manufacture precision.
+
+Round user-facing derived values sensibly.
+
+Preserve the raw calculation internally.
+
+==================================================
+PASS 2 — INSIGHT GENERATOR + CRITIC
+==================================================
+
+Use:
+
+model: gpt-5.6-sol
+reasoning effort: high
+image detail: original
+
+Pass 2 receives:
+
+1. original image
+2. VisualEvidence from Pass 1
+3. ComputedEvidence
+4. existing public NoesisAnalysis JSON schema
+
+Its job is to produce the final walkthrough.
+
+==================================================
+PASS 2 CORE PHILOSOPHY
+==================================================
+
+The REGION exists to support the INSIGHT.
+
+Do NOT choose regions first and then invent explanations for them.
+
+Instead:
+
+1. inspect the whole visual
+2. inspect extracted evidence
+3. inspect deterministic calculations
+4. generate multiple candidate insights internally
+5. critique those candidates
+6. select the strongest set
+7. only then choose the spatial regions required to teach them
+
+==================================================
+PASS 2 — CANDIDATE INSIGHT GENERATION
+==================================================
+
+Internally generate multiple candidate insights.
+
+Search for:
+
+- numerical contrasts
+- ratios
+- dominant contributors
+- concentration
+- divergence
+- thresholds
+- bottlenecks
+- asymmetry
+- anomalies
+- reversals
+- acceleration / deceleration
+- unusually large or small values
+- dependencies
+- bridging relationships
+- scenario spread
+- topology differences
+- long-term consequences
+- non-linear changes
+- relationships between distant regions
+- evidence requiring multiple parts of the visual to understand
+
+Do not confuse observations with insights.
+
+WEAK OBSERVATION:
+"Transportation uses petroleum."
+
+STRONGER INSIGHT:
+"Petroleum supplies roughly 89% of the transportation energy shown: 24.8 of 28 quads."
+
+WEAK:
+"Rejected energy is large."
+
+STRONGER:
+"Rejected energy is about 1.9× useful Energy Services: 61.5 versus 32.1 quads."
+
+==================================================
+PASS 2 — SELF-CRITIQUE
+==================================================
+
+For every candidate insight, internally critique it on:
+
+1. EVIDENCE
+Is it directly supported?
+
+2. NUMERIC STRENGTH
+Can it be supported with a reliable number, ratio, ranking or magnitude?
+
+3. SPECIFICITY
+Does it say something specific to THIS visual?
+
+4. NON-OBVIOUSNESS
+Would an intelligent viewer gain something they might miss initially?
+
+5. IMPORTANCE
+Does it materially improve understanding?
+
+6. COMPARATIVE VALUE
+Does it reveal a meaningful contrast or relationship?
+
+7. EXPLANATORY POWER
+Does it help explain the visual as a whole?
+
+8. GROUNDING
+Does it avoid external assumptions?
+
+9. ALTERNATIVE
+Is there a stronger candidate insight available?
+
+Reject candidates that:
+
+- restate the title
+- mainly explain formatting
+- merely explain a legend
+- say "this is important" without evidence
+- are obvious from casual inspection
+- sound analytical but lack evidence
+- rely on external knowledge
+- infer unsupported causality
+
+==================================================
+PRESSURE-TEST THE WINNER
+==================================================
+
+Before selecting any insight, internally ask:
+
+"What is the strongest reason this claim could be wrong or overstated?"
+
+Then:
+
+- tighten the wording
+- reduce certainty
+- remove unsupported implication
+- or replace the insight
+
+Never sacrifice grounding for sophistication.
+
+==================================================
+NUMERIC-FIRST RULE
+==================================================
+
+When a meaningful quantitative comparison is clearly available, prefer it over generic prose.
+
+`why_it_matters` should normally contain the strongest concrete evidence supporting the insight.
+
+Prefer:
+
+"61.5 quads are rejected versus 32.1 delivered as Energy Services."
+
+over:
+
+"Most energy is rejected."
+
+Prefer:
+
+"Drought frequency rises from about 2× at +1.5°C to 4.1× at +4°C."
+
+over:
+
+"Drought becomes more frequent."
+
+But:
+
+- do not force numbers into qualitative visuals
+- do not use dubious OCR values
+- do not list numbers without analytical purpose
+
+==================================================
+CONTRAST-FIRST RULE
+==================================================
+
+Whenever possible, a substantive insight should connect or compare at least TWO elements.
+
+Useful forms include:
+
+- X is 2.4× Y
+- X dominates Y
+- X and Y start similarly but diverge
+- X depends on Y
+- X changes faster than Y
+- this region is mesh-like while that region is corridor-like
+- one scenario crosses a threshold while another does not
+- this component contributes most of the total
+- this region bridges two otherwise separated clusters
+
+Ask:
+
+"Could I have written this sentence without looking carefully at this specific visual?"
+
+If yes, it is probably too generic.
+
+==================================================
+VISUAL TYPE ADAPTATION
+==================================================
+
+NETWORK / INFRASTRUCTURE MAPS:
+
+Prioritize:
+- densest versus sparsest areas
+- major junction clusters
+- bridging corridors
+- narrow geographic gateways
+- mesh-like versus corridor-like topology
+- regional asymmetry
+- concentration
+- long-distance backbone versus regional network
+- existing versus planned infrastructure if clearly encoded
+
+Do NOT claim reliability, vulnerability, capacity or bottleneck risk unless supported by actual visible evidence.
+
+CHARTS:
+
+Prioritize:
+- ratios
+- divergence
+- inflection points
+- thresholds
+- dominant contributors
+- outliers
+- reversals
+- acceleration
+- widening gaps
+
+MULTI-PANEL SCIENTIFIC INFOGRAPHICS:
+
+Prioritize:
+- cross-panel causal or logical chain
+- strongest scenario contrasts
+- disproportionate changes
+- non-linear escalation
+- effects operating at different timescales
+- insights requiring multiple panels
+
+DASHBOARDS:
+
+Prioritize:
+- headline KPI versus driver
+- trade-offs
+- anomalies
+- hidden deterioration
+- concentration
+- contradictory metrics
+
+ARCHITECTURE / PROCESS DIAGRAMS:
+
+Prioritize:
+- dependencies
+- fan-in/fan-out
+- central coordination
+- bottlenecks
+- handoffs
+- single points of failure
+- loops
+- propagation paths
+
+==================================================
+FINAL WALKTHROUGH COMPOSITION
+==================================================
+
+Return exactly 4–6 regions as required by the existing schema.
+
+Normally:
+
+- 0–1 orientation step
+- at least 3 substantive insight steps
+- 1 synthesis step
+
+Do not spend valuable steps on:
+- logos
+- titles
+- footnotes
+- decorative elements
+- legend-only explanations
+
+unless they are essential to understanding a stronger insight.
+
+==================================================
+OUTPUT FIELD RESPONSIBILITIES
+==================================================
+
+Keep the PUBLIC schema exactly as it is.
+
+`explanation`
+
+Teach:
+WHERE should I look?
+HOW should I read this region?
+
+Maximum 2 concise sentences.
+
+`why_it_matters`
+
+Give:
+THE BEST INSIGHT.
+
+Prefer the strongest numeric, comparative, structural or non-obvious evidence.
+
+Maximum 2 concise sentences.
+
+`relationship_explanation`
+
+Explain:
+How does this insight connect to the other highlighted regions?
+
+Do not repeat `why_it_matters`.
+
+Maximum 2 concise sentences.
+
+`big_takeaway`
+
+Generate several possible whole-visual conclusions internally.
+
+Critique them.
+
+Choose the strongest synthesis that:
+- uses at least two separate parts of the image
+- is more informative than the title
+- preferably includes concrete evidence
+- explains the most consequential overall pattern
+
+==================================================
+FINAL QUALITY GATE
+==================================================
+
+Before returning the final NoesisAnalysis JSON, internally review it as a skeptical expert.
+
+For each step ask:
+
+"Is this genuinely one of the best things I could point out?"
+
+"If I removed this step, would the user lose useful understanding?"
+
+"Is there a stronger quantitative or comparative insight available?"
+
+"Does the highlighted region actually support the insight?"
+
+Then inspect the full walkthrough:
+
+"Does each step add a new layer of understanding?"
+
+"Are we repeating ourselves?"
+
+"After completing this walkthrough, will the user understand something they probably would not have extracted quickly by staring at the image alone?"
+
+If not, improve the insight selection before returning the JSON.
+
+Do NOT expose this internal critique.
+
+==================================================
+IMPLEMENTATION REQUIREMENTS
+==================================================
+
+1. Preserve the existing public API response.
+2. Add clear internal TypeScript/Zod schemas for:
+   - VisualEvidence
+   - ComputedEvidence
+3. Use strict Structured Outputs for Pass 1.
+4. Preserve strict Structured Outputs for final Pass 2 output.
+5. Add small pure deterministic calculation helpers rather than embedding arithmetic in route code.
+6. Keep code modular.
+7. Preserve existing timeout/error behavior.
+8. If Pass 1 succeeds but Pass 2 fails, return the normal existing error state. Do NOT silently fall back to the old single-pass analysis.
+9. Do NOT expose intermediate evidence to the client.
+10. Keep API key server-side.
+
+==================================================
+LATENCY
+==================================================
+
+Do not prematurely optimize away quality.
+
+However:
+
+- run Pass 1 and Pass 2 sequentially because Pass 2 depends on Pass 1
+- avoid unnecessary extra calls
+- exactly TWO model calls per successful analysis
+- no hidden third "review" model call
+- the self-critique happens inside Pass 2
+
+==================================================
+TESTING
+==================================================
+
+After implementation:
+
+1. Typecheck once.
+2. Production build once.
+3. Run ONE real analysis using an existing dense test image available in the Repl.
+4. Verify:
+   - Pass 1 Structured Output succeeds
+   - numeric facts are extracted
+   - deterministic computations are generated where appropriate
+   - Pass 2 returns valid existing NoesisAnalysis
+   - 4–6 hotspots render
+   - walkthrough still works
+   - no frontend regression
+
+Do NOT download new test images from the web merely for this test.
+
+If no suitable numeric dense test image exists locally, perform only a smoke test and explicitly tell me what remains to be tested manually.
+
+==================================================
+REPORT BACK
+==================================================
+
+When complete, report:
+
+1. architecture implemented
+2. files created/modified
+3. Pass 1 model + reasoning
+4. Pass 2 model + reasoning
+5. internal schemas created
+6. deterministic calculations supported
+7. result of the single real test
+8. examples of extracted raw facts
+9. examples of computed evidence
+10. final walkthrough insights
+11. total analysis latency
+12. any failure or weakness you observed
+13. whether frontend behavior remained unchanged
+
+Do not proceed to UI polish or any additional feature after this.
+
+==================================================
+COST / AGENT CONTROL
+==================================================
+
+This is a meaningful architecture change, so use careful reasoning.
+
+However:
+
+- do not launch unrelated subagents
+- do not perform broad codebase audits
+- do not refactor unrelated working code
+- do not redesign frontend
+- do not run repeated model analyses
+- do not expand scope
+
+Make the architecture change, verify it once, report, and stop.

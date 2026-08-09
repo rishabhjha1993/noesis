@@ -214,7 +214,7 @@ router.post("/analyze", async (req, res) => {
     const openai = new OpenAI({ apiKey });
     const completion = await openai.chat.completions.create({
       model: "gpt-5.6-sol",
-      reasoning_effort: "low",
+      reasoning_effort: "high",
       max_completion_tokens: 3500,
       response_format: { type: "json_object" },
       messages: [

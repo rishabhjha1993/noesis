@@ -1,44 +1,46 @@
-# [Project name]
+# Noesis
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Noesis helps users understand complex visuals by teaching them how to read the visual itself, step by step: upload an image, get an analysis, then follow a guided walkthrough across highlighted regions to the big takeaway.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/noesis run dev` — run the Noesis web app (served at `/`)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- Frontend: React + Vite + Tailwind + shadcn (`artifacts/noesis`)
+- API: Express 5 (unused by Noesis so far — analysis is mocked on the client)
+- Validation: Zod (`zod/v4`); API codegen: Orval (from OpenAPI spec)
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/noesis/src/App.tsx` — top-level screen state machine (upload → loading → result) and object-URL lifecycle
+- `artifacts/noesis/src/components/` — UploadScreen, LoadingScreen, ResultScreen, VisualCanvas, Hotspot, WalkthroughPanel, ProgressControls
+- `artifacts/noesis/src/lib/types.ts` — `NoesisAnalysis` / `NoesisRegion` data contract (normalized 0–1 region coordinates)
+- `artifacts/noesis/src/lib/mockAnalysis.ts` — mocked analysis payload (Sankey diagram example)
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- First build is intentionally frontend-only: mocked analysis, no AI, no API, no DB (user requirement). The AI swap replaces `mockAnalysis` with an API call; the `NoesisAnalysis` contract is the stable seam.
+- Hotspots render with pure percentage positioning inside an image-sized `inline-block` relative wrapper so they stay aligned on any resize — never pixel-measured.
+- The uploaded image object URL is owned by `App.tsx` and revoked via effect cleanup on replacement/reset/unmount.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Upload a PNG/JPG/WebP → short "reading the visual" loading sequence → result screen with the image, mocked analysis (title, image type, central question, summary, Big Takeaway) → guided 5-step walkthrough with numbered hotspots, related-region highlighting, Previous/Next controls, and a Big Takeaway conclusion.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Serious, clean, visually sophisticated design — not gamified, no chatbot aesthetic, restrained palette, subtle transitions only.
+- Keep scope tight: no auth, history, export, PDF, voice, or collaboration unless explicitly requested.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- App is served under `BASE_PATH`; don't hardcode absolute asset paths.
+- Region coordinates are normalized 0–1; always render as `value * 100%`.
 
 ## Pointers
 

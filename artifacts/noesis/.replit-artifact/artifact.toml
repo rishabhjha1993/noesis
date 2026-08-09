@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Noesis"
+description = "Noesis helps users understand complex visuals by teaching them how to read the visual itself, step by step. Upload an image, get a mocked analysis, and follow a guided walkthrough across highlighted regions with previous/next controls, related-region highlighting, and a big-takeaway conclusion. Frontend-only first build with mocked data; no AI, no backend."
+version = "1.0.0"
+id = "artifacts/noesis"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23152
+
+[services.development]
+run = "pnpm --filter @workspace/noesis run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/noesis", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/noesis/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23152"
+BASE_PATH = "/"

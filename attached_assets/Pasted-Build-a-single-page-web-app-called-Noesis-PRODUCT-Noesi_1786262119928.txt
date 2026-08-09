@@ -1,0 +1,290 @@
+Build a single-page web app called Noesis.
+
+PRODUCT
+Noesis helps users understand complex visuals by teaching them how to read the visual itself, step by step.
+
+The eventual experience will be:
+
+Upload image
+→ understand what kind of visual it is
+→ identify its central question and big takeaway
+→ guide the user through 4–6 important regions in a deliberate sequence
+→ visually highlight relationships between regions
+→ end with the overall insight
+
+IMPORTANT FOR THIS FIRST BUILD:
+DO NOT connect any AI or external API yet.
+Use mocked data only.
+I want the complete frontend interaction working reliably before we add GPT.
+
+TECH
+Use Next.js + React + TypeScript + Tailwind.
+
+Use a modular structure:
+
+app/
+  page.tsx
+  layout.tsx
+  globals.css
+
+components/
+  UploadScreen.tsx
+  LoadingScreen.tsx
+  ResultScreen.tsx
+  VisualCanvas.tsx
+  Hotspot.tsx
+  WalkthroughPanel.tsx
+  ProgressControls.tsx
+
+lib/
+  types.ts
+  mockAnalysis.ts
+
+Keep app/page.tsx mainly responsible for top-level state and screen transitions.
+Do NOT put the entire app into one giant component.
+
+BUILD THESE THREE STATES:
+
+1. UPLOAD SCREEN
+
+Show:
+
+NOESIS
+
+"Understand complex visuals, step by step."
+
+Add:
+- drag-and-drop image upload
+- choose-file button
+- accept PNG, JPG, JPEG and WebP
+- after selection, show the uploaded image preview
+- button: "X-Ray this visual"
+
+Keep the design serious, clean and visually sophisticated.
+Do not make it look gamified.
+
+2. LOADING STATE
+
+After clicking "X-Ray this visual", briefly show:
+
+Reading the visual...
+Finding the important parts...
+Building your walkthrough...
+
+For now use an artificial 2–3 second delay.
+
+3. RESULT SCREEN
+
+Desktop layout:
+
+LEFT:
+uploaded image
+
+RIGHT:
+analysis / walkthrough panel
+
+The image must be inside a position: relative container.
+
+Overlay mocked hotspot regions using position: absolute.
+
+IMPORTANT:
+Hotspot coordinates are NORMALIZED values from 0 to 1.
+
+Render them as percentages:
+
+left = x * 100%
+top = y * 100%
+width = width * 100%
+height = height * 100%
+
+The hotspots must stay aligned with the image when the browser window resizes.
+
+BEFORE WALKTHROUGH
+
+On the right show:
+
+- title
+- image type
+- central question
+- overall summary
+- a visually prominent "Big Takeaway"
+- button: "Start walkthrough"
+
+GUIDED WALKTHROUGH
+
+When walkthrough starts:
+
+- strongly highlight the current region
+- show a clear numbered marker
+- subtly highlight regions related to the current region
+- de-emphasize unrelated regions if it improves clarity
+- update the right-hand explanation panel
+
+The panel should show:
+
+- region label
+- explanation
+- why it matters
+- relationship to highlighted related regions
+
+Controls:
+
+Previous
+"2 of 5"
+Next
+
+At the end, show the Big Takeaway again as the conclusion.
+
+Use this TypeScript-style data contract:
+
+NoesisAnalysis:
+- title: string
+- image_type: string
+- central_question: string
+- overall_summary: string
+- big_takeaway: string
+- regions: NoesisRegion[]
+
+NoesisRegion:
+- id: string
+- label: string
+- x: number
+- y: number
+- width: number
+- height: number
+- sequence_order: number
+- explanation: string
+- why_it_matters: string
+- related_region_ids: string[]
+- relationship_explanation: string
+- confidence: number
+
+Put these interfaces in lib/types.ts.
+
+Put the following mocked analysis in lib/mockAnalysis.ts:
+
+{
+  "title": "U.S. Energy Consumption, 2023",
+  "image_type": "Sankey diagram",
+  "central_question": "How does energy flow through the U.S. economy, and where is it ultimately used or lost?",
+  "overall_summary": "This diagram shows how primary energy sources flow through electricity generation and major economic sectors.",
+  "big_takeaway": "A much larger share of U.S. energy ends up as rejected energy than as useful energy services.",
+  "regions": [
+    {
+      "id": "1",
+      "label": "Primary Energy Sources",
+      "x": 0.04,
+      "y": 0.08,
+      "width": 0.16,
+      "height": 0.78,
+      "sequence_order": 1,
+      "explanation": "Start with where energy enters the system.",
+      "why_it_matters": "Petroleum and natural gas dominate U.S. primary energy supply.",
+      "related_region_ids": ["2", "4"],
+      "relationship_explanation": "These sources feed electricity generation and direct end uses.",
+      "confidence": 0.98
+    },
+    {
+      "id": "2",
+      "label": "Electricity Generation",
+      "x": 0.34,
+      "y": 0.10,
+      "width": 0.27,
+      "height": 0.26,
+      "sequence_order": 2,
+      "explanation": "This is a major conversion hub in the energy system.",
+      "why_it_matters": "A large amount of primary energy passes through electricity generation before reaching users.",
+      "related_region_ids": ["1", "5"],
+      "relationship_explanation": "Energy enters from several sources and part of it later appears as rejected energy.",
+      "confidence": 0.96
+    },
+    {
+      "id": "3",
+      "label": "Natural Gas",
+      "x": 0.07,
+      "y": 0.27,
+      "width": 0.60,
+      "height": 0.28,
+      "sequence_order": 3,
+      "explanation": "Natural gas feeds several different parts of the economy.",
+      "why_it_matters": "It is used across electricity, buildings and industry rather than depending on one sector.",
+      "related_region_ids": ["2", "4"],
+      "relationship_explanation": "Its flows connect both conversion and direct-use sectors.",
+      "confidence": 0.95
+    },
+    {
+      "id": "4",
+      "label": "Transportation",
+      "x": 0.48,
+      "y": 0.68,
+      "width": 0.30,
+      "height": 0.19,
+      "sequence_order": 4,
+      "explanation": "Transportation is heavily dependent on petroleum.",
+      "why_it_matters": "It represents one of the clearest fuel dependencies in the diagram.",
+      "related_region_ids": ["1", "5"],
+      "relationship_explanation": "Large petroleum flows enter transportation and much of that energy later appears as rejected energy.",
+      "confidence": 0.98
+    },
+    {
+      "id": "5",
+      "label": "Rejected Energy",
+      "x": 0.76,
+      "y": 0.17,
+      "width": 0.21,
+      "height": 0.50,
+      "sequence_order": 5,
+      "explanation": "A large amount of energy never becomes useful energy services.",
+      "why_it_matters": "This is the visual's most important system-level insight.",
+      "related_region_ids": ["2", "4"],
+      "relationship_explanation": "Losses from electricity generation and transportation contribute heavily to this region.",
+      "confidence": 0.99
+    }
+  ]
+}
+
+DESIGN PRINCIPLES
+
+- professional and modern
+- restrained visual palette
+- strong typography
+- large readable explanations
+- hotspot numbers clearly visible
+- current region visually obvious
+- related regions visibly distinct but secondary
+- laptop-first responsive design
+- subtle transitions are fine
+- avoid excessive animations
+- avoid gradients everywhere
+- avoid a generic chatbot aesthetic
+
+DO NOT BUILD:
+
+- AI integration
+- external API calls
+- authentication
+- database
+- chat
+- PDF support
+- history
+- export
+- voice
+- collaboration
+- user accounts
+- anything outside the scope above
+
+Do not expand the scope.
+
+When you finish, report back with:
+
+1. exactly what you built
+2. files/components created
+3. assumptions you made
+4. anything not working correctly
+5. whether image upload works
+6. whether Start Walkthrough works
+7. whether Next/Previous moves through all five steps
+8. whether related regions highlight
+9. whether the hotspots remain aligned when the browser window or image size changes
+
+Do not add AI yet even if the frontend is complete.

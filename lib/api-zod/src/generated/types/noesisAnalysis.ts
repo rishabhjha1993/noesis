@@ -13,9 +13,5 @@ export interface NoesisAnalysis {
   central_question: string;
   overall_summary: string;
   big_takeaway: string;
-  /**
-     * @minItems 4
-     * @maxItems 6
-     */
   regions: NoesisRegion[];
 }

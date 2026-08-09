@@ -9,22 +9,16 @@ import * as zod from 'zod';
 
 
 /**
- * Returns server health status
- * @summary Health check
- */
-export const HealthCheckResponse = zod.object({
-  "status": zod.string()
-})
-
-
-/**
- * Sends an uploaded image to the multimodal model and returns a structured NoesisAnalysis walkthrough for the visual.
+ * Runs AI vision analysis on an uploaded image and returns a guided walkthrough payload
  * @summary Analyze an uploaded visual
  */
+export const analyzeImageBodyImageDataUrlMin = 30;
+
+
+
 export const AnalyzeImageBody = zod.object({
-  "image": zod.string().describe('Base64-encoded image bytes (no data-URL prefix)'),
-  "mediaType": zod.enum(['image/png', 'image/jpeg', 'image/webp']).describe('MIME type of the uploaded image')
-}).describe('Image payload for analysis')
+  "image_data_url": zod.string().min(analyzeImageBodyImageDataUrlMin).describe('Data URL (base64) of the uploaded image, e.g. data:image\/png;base64,...')
+})
 
 export const analyzeImageResponseRegionsItemXMin = 0;
 export const analyzeImageResponseRegionsItemXMax = 1;
@@ -38,12 +32,8 @@ export const analyzeImageResponseRegionsItemWidthMax = 1;
 export const analyzeImageResponseRegionsItemHeightMin = 0;
 export const analyzeImageResponseRegionsItemHeightMax = 1;
 
-
 export const analyzeImageResponseRegionsItemConfidenceMin = 0;
 export const analyzeImageResponseRegionsItemConfidenceMax = 1;
-
-export const analyzeImageResponseRegionsMin = 4;
-export const analyzeImageResponseRegionsMax = 6;
 
 
 
@@ -60,13 +50,22 @@ export const AnalyzeImageResponse = zod.object({
   "y": zod.number().min(analyzeImageResponseRegionsItemYMin).max(analyzeImageResponseRegionsItemYMax),
   "width": zod.number().min(analyzeImageResponseRegionsItemWidthMin).max(analyzeImageResponseRegionsItemWidthMax),
   "height": zod.number().min(analyzeImageResponseRegionsItemHeightMin).max(analyzeImageResponseRegionsItemHeightMax),
-  "sequence_order": zod.number().min(1),
+  "sequence_order": zod.number(),
   "explanation": zod.string(),
   "why_it_matters": zod.string(),
   "related_region_ids": zod.array(zod.string()),
   "relationship_explanation": zod.string(),
   "confidence": zod.number().min(analyzeImageResponseRegionsItemConfidenceMin).max(analyzeImageResponseRegionsItemConfidenceMax)
-}).describe('One explanatory region of the visual. Coordinates are normalized 0-1 relative to the whole image; x + width and y + height must not exceed 1.')).min(analyzeImageResponseRegionsMin).max(analyzeImageResponseRegionsMax)
+}))
+})
+
+
+/**
+ * Returns server health status
+ * @summary Health check
+ */
+export const HealthCheckResponse = zod.object({
+  "status": zod.string()
 })
 
 

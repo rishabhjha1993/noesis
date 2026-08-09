@@ -6,9 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export * from './analysisRequest';
-export * from './analysisRequestMediaType';
-export * from './errorResponse';
+export * from './analysisInput';
+export * from './apiErrorMessage';
 export * from './healthStatus';
 export * from './noesisAnalysis';
 export * from './noesisRegion';

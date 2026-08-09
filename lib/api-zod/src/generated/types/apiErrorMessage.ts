@@ -6,6 +6,6 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface ErrorResponse {
+export interface ApiErrorMessage {
   error: string;
 }

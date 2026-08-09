@@ -14,7 +14,7 @@ export function LoadingScreen() {
   useEffect(() => {
     const interval = setInterval(() => {
       setMsgIndex(prev => (prev + 1) % MESSAGES.length);
-    }, 1600);
+    }, 2200);
 
     return () => clearInterval(interval);
   }, []);
@@ -27,7 +27,7 @@ export function LoadingScreen() {
           <p
             key={i}
             className={`absolute font-mono text-lg transition-all duration-500 text-foreground
-              ${i === msgIndex ? 'opacity-100 translate-y-0' : i < msgIndex ? 'opacity-0 -translate-y-4' : 'opacity-0 translate-y-4'}
+              ${i === msgIndex ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}
             `}
           >
             {msg}

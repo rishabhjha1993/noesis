@@ -20,8 +20,8 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
-  AnalysisRequest,
-  ErrorResponse,
+  AnalysisInput,
+  ApiErrorMessage,
   HealthStatus,
   NoesisAnalysis
 } from './api.schemas';
@@ -52,6 +52,78 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export const getAnalyzeImageUrl = () => {
+
+
+
+
+  return `/api/analyze`
+}
+
+/**
+ * Runs AI vision analysis on an uploaded image and returns a guided walkthrough payload
+ * @summary Analyze an uploaded visual
+ */
+export const analyzeImage = async (analysisInput: AnalysisInput, options?: Parameters<typeof customFetch>[1]): Promise<NoesisAnalysis> => {
+
+  return customFetch<NoesisAnalysis>(getAnalyzeImageUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(analysisInput)
+  }
+);}
+
+
+
+
+
+export const getAnalyzeImageMutationOptions = <TError = ErrorType<ApiErrorMessage>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof analyzeImage>>, TError,{data: BodyType<AnalysisInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof analyzeImage>>, TError,{data: BodyType<AnalysisInput>}, TContext> => {
+
+const mutationKey = ['analyzeImage'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof analyzeImage>>, {data: BodyType<AnalysisInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  analyzeImage(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AnalyzeImageMutationResult = NonNullable<Awaited<ReturnType<typeof analyzeImage>>>
+    export type AnalyzeImageMutationBody = BodyType<AnalysisInput>
+    export type AnalyzeImageMutationError = ErrorType<ApiErrorMessage>
+
+    /**
+ * @summary Analyze an uploaded visual
+ */
+export const useAnalyzeImage = <TError = ErrorType<ApiErrorMessage>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof analyzeImage>>, TError,{data: BodyType<AnalysisInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof analyzeImage>>,
+        TError,
+        {data: BodyType<AnalysisInput>},
+        TContext
+      > => {
+      return useMutation(getAnalyzeImageMutationOptions(options));
+    }
 
 export const getHealthCheckUrl = () => {
 
@@ -130,76 +202,4 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
 
 
 
-
-export const getAnalyzeImageUrl = () => {
-
-
-
-
-  return `/api/analyze`
-}
-
-/**
- * Sends an uploaded image to the multimodal model and returns a structured NoesisAnalysis walkthrough for the visual.
- * @summary Analyze an uploaded visual
- */
-export const analyzeImage = async (analysisRequest: AnalysisRequest, options?: Parameters<typeof customFetch>[1]): Promise<NoesisAnalysis> => {
-
-  return customFetch<NoesisAnalysis>(getAnalyzeImageUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(analysisRequest)
-  }
-);}
-
-
-
-
-
-export const getAnalyzeImageMutationOptions = <TError = ErrorType<ErrorResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof analyzeImage>>, TError,{data: BodyType<AnalysisRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof analyzeImage>>, TError,{data: BodyType<AnalysisRequest>}, TContext> => {
-
-const mutationKey = ['analyzeImage'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof analyzeImage>>, {data: BodyType<AnalysisRequest>}> = (props) => {
-          const {data} = props ?? {};
-
-          return  analyzeImage(data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type AnalyzeImageMutationResult = NonNullable<Awaited<ReturnType<typeof analyzeImage>>>
-    export type AnalyzeImageMutationBody = BodyType<AnalysisRequest>
-    export type AnalyzeImageMutationError = ErrorType<ErrorResponse>
-
-    /**
- * @summary Analyze an uploaded visual
- */
-export const useAnalyzeImage = <TError = ErrorType<ErrorResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof analyzeImage>>, TError,{data: BodyType<AnalysisRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof analyzeImage>>,
-        TError,
-        {data: BodyType<AnalysisRequest>},
-        TContext
-      > => {
-      return useMutation(getAnalyzeImageMutationOptions(options));
-    }
 

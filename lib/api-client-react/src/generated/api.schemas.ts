@@ -9,35 +9,18 @@ export interface HealthStatus {
   status: string;
 }
 
-export interface ErrorResponse {
+export interface ApiErrorMessage {
   error: string;
 }
 
-/**
- * MIME type of the uploaded image
- */
-export type AnalysisRequestMediaType = typeof AnalysisRequestMediaType[keyof typeof AnalysisRequestMediaType];
-
-
-export const AnalysisRequestMediaType = {
-  'image/png': 'image/png',
-  'image/jpeg': 'image/jpeg',
-  'image/webp': 'image/webp',
-} as const;
-
-/**
- * Image payload for analysis
- */
-export interface AnalysisRequest {
-  /** Base64-encoded image bytes (no data-URL prefix) */
-  image: string;
-  /** MIME type of the uploaded image */
-  mediaType: AnalysisRequestMediaType;
+export interface AnalysisInput {
+  /**
+     * Data URL (base64) of the uploaded image, e.g. data:image/png;base64,...
+     * @minLength 30
+     */
+  image_data_url: string;
 }
 
-/**
- * One explanatory region of the visual. Coordinates are normalized 0-1 relative to the whole image; x + width and y + height must not exceed 1.
- */
 export interface NoesisRegion {
   id: string;
   label: string;
@@ -61,7 +44,6 @@ export interface NoesisRegion {
      * @maximum 1
      */
   height: number;
-  /** @minimum 1 */
   sequence_order: number;
   explanation: string;
   why_it_matters: string;
@@ -80,10 +62,6 @@ export interface NoesisAnalysis {
   central_question: string;
   overall_summary: string;
   big_takeaway: string;
-  /**
-     * @minItems 4
-     * @maxItems 6
-     */
   regions: NoesisRegion[];
 }
 

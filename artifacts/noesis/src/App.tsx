@@ -14,22 +14,13 @@ import { type NoesisAnalysis, type NoesisScreen } from './lib/types';
 
 const queryClient = new QueryClient();
 
-type ImageMediaType = 'image/png' | 'image/jpeg' | 'image/webp';
-const ALLOWED_MEDIA_TYPES = new Set<string>(['image/png', 'image/jpeg', 'image/webp']);
-
-function normalizeMediaType(type: string): ImageMediaType {
-  if (type === 'image/jpg') return 'image/jpeg';
-  return ALLOWED_MEDIA_TYPES.has(type) ? (type as ImageMediaType) : 'image/png';
-}
-
-async function fileToBase64(file: File): Promise<string> {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let binary = '';
-  const CHUNK = 0x8000;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
-  }
-  return btoa(binary);
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error("Could not read the image file"));
+    reader.readAsDataURL(file);
+  });
 }
 
 function NoesisApp() {
@@ -57,9 +48,9 @@ function NoesisApp() {
     setScreen("loading");
     setAnalyzeError(null);
     try {
-      const image = await fileToBase64(file);
+      const dataUrl = await fileToDataUrl(file);
       const result = await analyze.mutateAsync({
-        data: { image, mediaType: normalizeMediaType(file.type) },
+        data: { image_data_url: dataUrl },
       });
       if (requestId !== analysisRequestSeq.current) return; // superseded
       setAnalysis(result);

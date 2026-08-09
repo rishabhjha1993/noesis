@@ -1,3 +1,4 @@
 # Memory index
 
-- [Orval codegen: avoid OpenAPI `integer` type](orval-integer-zod-int.md) — `type: integer` generates `zod.int()`, which breaks typecheck on this repo's Zod v3; use `type: number` instead.
+- [AI provider decision](ai-provider-setup.md) — this project uses the OpenAI SDK directly with the OPENAI_API_KEY secret; Replit AI Integrations proxy is unavailable in this workspace.
+- [OpenAPI spec integers](openapi-codegen-quirks.md) — declare whole-number fields as `type: number`, not `type: integer`, or codegen output fails the lib typecheck.

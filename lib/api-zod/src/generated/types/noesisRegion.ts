@@ -6,9 +6,6 @@
  * OpenAPI spec version: 0.1.0
  */
 
-/**
- * One explanatory region of the visual. Coordinates are normalized 0-1 relative to the whole image; x + width and y + height must not exceed 1.
- */
 export interface NoesisRegion {
   id: string;
   label: string;
@@ -32,7 +29,6 @@ export interface NoesisRegion {
      * @maximum 1
      */
   height: number;
-  /** @minimum 1 */
   sequence_order: number;
   explanation: string;
   why_it_matters: string;

@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "h3dSyH09V50zWUw2SAJxt"
+uri = "file://attached_assets/test/energy-2023-united-states.png"
+type = "image"
+title = "LLNL 2023 Energy Flow Chart"
+description = "The official LLNL 2023 Sankey chart used for the Noesis Phase 3 test."
+
+[[outputs]]
+id = "V2ts9KwnP66Dkwa59J065"
+uri = "file://attached_assets/test/test-visual.png"
+type = "image"
+title = "Noesis Test Visual"
+description = "The synthetic test diagram used during the earlier Noesis analysis test."

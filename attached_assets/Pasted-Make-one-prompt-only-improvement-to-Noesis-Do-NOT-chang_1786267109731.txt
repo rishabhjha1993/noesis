@@ -1,0 +1,87 @@
+Make one prompt-only improvement to Noesis.
+
+Do NOT change architecture, schema, frontend, coordinates, model, reasoning effort, or UI.
+
+The current walkthrough is good at explaining HOW to read each region, but its insights are still too generic.
+
+Add the following strict rule:
+
+EVIDENCE-FIRST INSIGHTS
+
+For every selected region, `why_it_matters` must answer:
+
+"What specific fact, contrast, magnitude, pattern, threshold, divergence, anomaly, or relationship visible in this region would most reward a careful viewer?"
+
+A generic statement is NOT sufficient.
+
+Examples of GENERIC statements that should be avoided:
+
+- "Higher warming leads to greater impacts."
+- "Different scenarios produce different outcomes."
+- "This is an important part of the visual."
+- "Sea level rises over time."
+- "This shows a major choice point."
+
+These may be true, but they do not add enough value.
+
+Instead, when clearly visible, extract the strongest concrete evidence.
+
+Prefer:
+
+- specific numerical contrasts
+- ratios
+- changes over time
+- differences between scenarios
+- dominant contributors
+- thresholds
+- reversals
+- large gaps
+- non-linear escalation
+- long-lived consequences
+- surprising relationships
+
+For example:
+
+Instead of:
+"Higher warming produces greater climate impacts."
+
+Prefer:
+"At +4°C, drought frequency is shown at about 4.1×, wettest-day precipitation at 2.7×, snow-cover loss at about 26%, and intense tropical cyclones at +30%."
+
+Instead of:
+"Sea level continues rising for a long time."
+
+Prefer:
+"At +4°C, the visual indicates roughly 16 m of committed sea-level rise over 2,000 years and 33 m over 10,000 years."
+
+Instead of:
+"Emissions pathways diverge."
+
+Prefer:
+"The pathways start near the same level today but span from more than ~130 GtCO₂/year in the very-high scenario to below net zero in the very-low scenario by 2100."
+
+RULES:
+
+1. If clear numerical evidence exists, `why_it_matters` should normally include at least one numerical contrast.
+2. If no reliable numbers are legible, use the strongest visible categorical or structural contrast.
+3. Do not list every number. Select the 1–3 pieces of evidence that best support the insight.
+4. Never invent values or guess unreadable text.
+5. Do not use external knowledge.
+6. Keep `why_it_matters` concise: maximum 2 sentences.
+7. `explanation` continues to teach HOW to read the region.
+8. `why_it_matters` must tell the viewer WHAT THEY SHOULD NOTICE.
+9. `relationship_explanation` explains WHY that insight connects to other regions.
+
+Before returning each region, internally test:
+
+"If I removed `why_it_matters`, would the user lose a genuinely useful insight?"
+
+If the answer is no, rewrite it with stronger visible evidence.
+
+For `big_takeaway`, require the strongest synthesis supported by at least TWO different regions of the image and include concrete visible evidence when possible.
+
+Make only this prompt change.
+
+Typecheck once.
+Do not run Agent-driven tests.
+Stop after the edit.

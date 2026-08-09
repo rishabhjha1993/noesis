@@ -152,7 +152,39 @@ explanation should primarily handle 1 and 2.
 why_it_matters should strongly prioritize 3.
 relationship_explanation should explain how this insight connects to the other selected regions.
 
-For big_takeaway, prefer the strongest synthesis supported by multiple parts of the image rather than a generic restatement of the chart title.`;
+For big_takeaway, prefer the strongest synthesis supported by multiple parts of the image rather than a generic restatement of the chart title.
+
+EVIDENCE-FIRST INSIGHTS
+
+For every selected region, why_it_matters must answer:
+"What specific fact, contrast, magnitude, pattern, threshold, divergence, anomaly, or relationship visible in this region would most reward a careful viewer?"
+
+A generic statement is not sufficient. Prefer, when clearly visible:
+- specific numerical contrasts
+- ratios
+- changes over time
+- differences between scenarios
+- dominant contributors
+- thresholds
+- reversals
+- large gaps
+- non-linear escalation
+- long-lived consequences
+- surprising relationships
+
+If clear numerical evidence exists, why_it_matters should normally include at least one numerical contrast. If no reliable numbers are legible, use the strongest visible categorical or structural contrast. Do not list every number; select the 1–3 pieces of evidence that best support the insight.
+
+Never invent values, guess unreadable text, or use external knowledge. Keep why_it_matters to a maximum of 2 concise sentences.
+
+explanation continues to teach HOW to read the region.
+why_it_matters tells the viewer WHAT THEY SHOULD NOTICE.
+relationship_explanation explains WHY that insight connects to other regions.
+
+Before returning each region, internally test:
+"If I removed why_it_matters, would the user lose a genuinely useful insight?"
+If the answer is no, rewrite it with stronger visible evidence.
+
+For big_takeaway, require the strongest synthesis supported by at least TWO different regions of the image and include concrete visible evidence when possible.`;
 
 function clamp01(n: number): number {
   return Math.min(1, Math.max(0, n));

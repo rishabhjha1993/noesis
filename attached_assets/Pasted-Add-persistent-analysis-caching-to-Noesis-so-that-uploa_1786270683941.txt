@@ -1,0 +1,394 @@
+Add persistent analysis caching to Noesis so that uploading the exact same image again does NOT rerun the two GPT-5.6 Sol analysis passes.
+
+This is a targeted backend performance/cost upgrade.
+
+The current two-pass Noesis analysis pipeline is working.
+
+DO NOT modify:
+- Pass 1 prompt
+- Pass 2 prompt
+- models
+- reasoning levels
+- evidence schemas
+- deterministic calculation logic
+- public NoesisAnalysis response schema
+- frontend design
+- hotspot behavior
+- walkthrough behavior
+
+The goal:
+
+FIRST upload of an image:
+hash → cache miss → run existing analysis → save result → return result
+
+SUBSEQUENT upload of exact same image:
+hash → cache hit → return saved NoesisAnalysis immediately
+
+No OpenAI/model calls should occur on a cache hit.
+
+==================================================
+DESIRED FLOW
+==================================================
+
+POST /api/analyze
+      ↓
+decode / obtain original uploaded image bytes
+      ↓
+SHA-256(image bytes)
+      ↓
+build versioned cache key
+      ↓
+CACHE LOOKUP
+      ↓
+ HIT --------------------→ return cached NoesisAnalysis
+      |
+     MISS
+      ↓
+existing two-pass analysis pipeline
+      ↓
+validate final NoesisAnalysis
+      ↓
+persist cache entry
+      ↓
+return NoesisAnalysis
+
+==================================================
+CACHE KEY
+==================================================
+
+Do NOT use filename.
+
+Hash the actual image bytes using SHA-256.
+
+Introduce an explicit analysis cache version, for example:
+
+const ANALYSIS_CACHE_VERSION = "noesis-v2.1";
+
+Cache key:
+
+`${ANALYSIS_CACHE_VERSION}:${sha256}`
+
+This is important because future prompt/model/pipeline improvements must not return stale analyses.
+
+Add a clear comment:
+
+// Bump ANALYSIS_CACHE_VERSION whenever a material change is made to:
+// - analysis prompts
+// - model/reasoning configuration
+// - evidence extraction
+// - deterministic computation logic
+// - final analysis behavior
+
+Do NOT automatically derive this from timestamps.
+
+We want deliberate cache invalidation.
+
+==================================================
+PERSISTENCE
+==================================================
+
+The cache must survive:
+- server restarts
+- deployment restarts
+- workflow restarts
+
+Do NOT rely only on:
+- an in-memory Map
+- /tmp
+- local ephemeral deployment filesystem
+
+First inspect the project for any existing persistent database/storage.
+
+If an existing persistent DB exists, use it.
+
+If none exists, use the simplest Replit-supported persistent database option available to this project.
+
+Prefer a small persistent database table rather than introducing a large storage architecture.
+
+Do not provision unrelated infrastructure.
+
+Suggested table:
+
+analysis_cache
+
+fields:
+
+cache_key        TEXT PRIMARY KEY
+image_hash       TEXT NOT NULL
+analysis_version TEXT NOT NULL
+analysis_json    JSON / JSONB / TEXT NOT NULL
+created_at       TIMESTAMP NOT NULL
+last_accessed_at TIMESTAMP
+
+The exact DB types may be adapted to the project's existing storage stack.
+
+Store the FINAL validated NoesisAnalysis.
+
+Do NOT store the uploaded image itself.
+
+Do NOT store image base64.
+
+==================================================
+WHAT TO CACHE
+==================================================
+
+Required:
+
+- image SHA-256
+- analysis version
+- final validated NoesisAnalysis JSON
+- created_at
+
+Optional:
+- last_accessed_at
+- analysis latency
+
+Do NOT expand scope by building a user history system.
+
+Intermediate VisualEvidence and ComputedEvidence do NOT need to be persisted in this iteration unless doing so is trivial within the existing architecture.
+
+The primary goal is avoiding repeated model execution.
+
+==================================================
+CACHE HIT BEHAVIOR
+==================================================
+
+On a valid cache hit:
+
+1. Read analysis_json
+2. Validate it against the existing public NoesisAnalysis schema
+3. Return it immediately
+4. DO NOT call Pass 1
+5. DO NOT execute deterministic analysis
+6. DO NOT call Pass 2
+
+Add response header:
+
+X-Noesis-Cache: HIT
+
+For uncached requests:
+
+X-Noesis-Cache: MISS
+
+Do not change the response JSON schema merely to expose cache status.
+
+==================================================
+INVALID CACHE RECORDS
+==================================================
+
+Never trust persisted JSON blindly.
+
+If the cached value fails the current NoesisAnalysis validation:
+
+- treat it as a cache miss
+- optionally delete the invalid cache record
+- run the normal pipeline
+- save the new valid result
+
+Do NOT serve malformed cached data.
+
+==================================================
+WRITE POLICY
+==================================================
+
+Only write to the cache AFTER:
+
+- Pass 1 succeeds
+- deterministic analysis succeeds
+- Pass 2 succeeds
+- final NoesisAnalysis passes validation
+
+Do not cache:
+- 4xx responses
+- 5xx responses
+- incomplete analyses
+- malformed model output
+- timeout failures
+
+A failed analysis must remain retryable.
+
+==================================================
+CONCURRENT IDENTICAL REQUESTS
+==================================================
+
+Also add a lightweight server-side "single flight" mechanism.
+
+Problem:
+
+Two users or two clicks may upload the exact same uncached image at nearly the same time.
+
+Without protection:
+
+Request A → MISS → model calls
+Request B → MISS → duplicate model calls
+
+Avoid that.
+
+Maintain a small in-memory map of currently-running analysis promises keyed by the versioned cache key.
+
+Flow:
+
+Request A:
+cache MISS
+→ register in-flight promise
+→ run analysis
+
+Request B while A is still running:
+cache MISS
+→ detect same key already in-flight
+→ await A's promise
+→ return the same final result
+
+After success or failure:
+remove the promise from the in-flight map.
+
+This in-memory map is ONLY for deduplicating concurrent work.
+
+Persistent caching still comes from the database.
+
+Make sure errors do not leave stale entries in the in-flight map.
+
+==================================================
+PRIVACY / DATA HANDLING
+==================================================
+
+Do not persist the source image.
+
+Do not log the image itself or image base64.
+
+Logging the SHA-256/cache key is acceptable for debugging.
+
+The cache should contain only the final analysis and technical metadata.
+
+==================================================
+ROUTE / PIPELINE RESPONSIBILITY
+==================================================
+
+Keep the architecture clean.
+
+Prefer something conceptually like:
+
+analyze route
+   ↓
+analysis cache service
+   ↓
+analysis pipeline
+
+Create a small module if appropriate, e.g.:
+
+src/lib/analysisCache.ts
+
+Responsibilities:
+- calculate/cache key helper if appropriate
+- get cached analysis
+- write cached analysis
+- schema validation
+- cache headers/status support
+
+Do NOT mix database queries throughout the prompts/pipeline module.
+
+The existing analysisPipeline should remain responsible for AI analysis.
+
+==================================================
+LATENCY LOGGING
+==================================================
+
+Add concise server logging such as:
+
+[Noesis] cache HIT <short hash> 43ms
+
+or
+
+[Noesis] cache MISS <short hash>
+[Noesis] analysis completed <short hash> 118432ms
+
+Do not print source image data.
+
+==================================================
+TESTING
+==================================================
+
+After implementation:
+
+1. typecheck once
+2. build once
+
+Then use ONE existing local test image.
+
+TEST A — FIRST REQUEST
+
+Upload/analyze it once.
+
+Verify:
+
+X-Noesis-Cache: MISS
+
+and verify the normal two-pass analysis executes.
+
+Record latency.
+
+TEST B — IDENTICAL SECOND REQUEST
+
+Send the EXACT same image again.
+
+Verify:
+
+X-Noesis-Cache: HIT
+
+Verify:
+- Pass 1 was NOT called
+- Pass 2 was NOT called
+- returned NoesisAnalysis matches the first response
+- latency is dramatically lower
+
+TEST C — VERSIONING
+
+Verify in code/tests that changing:
+
+ANALYSIS_CACHE_VERSION
+
+would create a different key and therefore a cache miss.
+
+Do not actually spend another model call merely to prove this if a unit-level/key-level check is sufficient.
+
+==================================================
+PRODUCTION SAFETY
+==================================================
+
+Ensure this works in the DEPLOYED app, not merely the local workspace.
+
+The persistent cache must survive a process restart.
+
+Do not use a development-only filesystem or localhost-dependent database configuration.
+
+Do not break the existing production /api/analyze routing.
+
+==================================================
+REPORT BACK
+==================================================
+
+When finished, tell me:
+
+1. persistent storage mechanism used
+2. files created/modified
+3. exact cache key structure
+4. ANALYSIS_CACHE_VERSION value
+5. whether source images are stored anywhere
+6. first-request result and latency
+7. second-request result and latency
+8. whether the second request made ANY OpenAI calls
+9. whether cache survives a server restart
+10. whether X-Noesis-Cache correctly showed MISS then HIT
+11. whether frontend/public response schema remained unchanged
+
+Do not add:
+- cache management UI
+- user history
+- perceptual hashing
+- image similarity search
+- manual cache clearing UI
+- analytics dashboards
+
+Exact-file SHA-256 caching only for this iteration.
+
+Make this change, verify it narrowly, report, and stop.

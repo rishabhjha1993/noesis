@@ -1,5 +1,6 @@
 import OpenAI from "openai";
-import { AnalyzeImageResponse } from "@workspace/api-zod";
+import { z } from "zod";
+import { GetAnalysisStatusResponse } from "@workspace/api-zod";
 import {
   VisualEvidence,
   VISUAL_EVIDENCE_JSON_SCHEMA,
@@ -297,6 +298,16 @@ If not, improve the insight selection before returning the JSON.
 
 Return only the structured JSON. Do not expose candidate insights, evidence maps, scores, internal critique, or reasoning.`;
 
+// Public NoesisAnalysis schema, extracted from the generated job-status
+// contract (the POST response is now just the job id).
+// Exported so analysisCache.ts can validate cached JSON against it.
+export const NoesisAnalysisSchema = (() => {
+  const shape = GetAnalysisStatusResponse.shape.analysis;
+  return shape instanceof z.ZodOptional ? shape.unwrap() : shape;
+})();
+
+export type NoesisAnalysisResult = z.infer<typeof NoesisAnalysisSchema>;
+
 function clamp01(n: number): number {
   return Math.min(1, Math.max(0, n));
 }
@@ -304,7 +315,7 @@ function clamp01(n: number): number {
 export async function runAnalysisPipeline(
   openai: OpenAI,
   imageDataUrl: string,
-): Promise<ReturnType<typeof AnalyzeImageResponse.parse>> {
+): Promise<NoesisAnalysisResult> {
   // ---- Pass 1: visual evidence extraction (low reasoning, strict schema)
   const pass1 = await openai.chat.completions.create({
     model: MODEL,
@@ -403,7 +414,7 @@ export async function runAnalysisPipeline(
     }
   }
 
-  const analysis = AnalyzeImageResponse.parse(candidate);
+  const analysis = NoesisAnalysisSchema.parse(candidate);
   if (analysis.regions.length === 0) {
     throw new Error("Pass 2 returned no regions");
   }

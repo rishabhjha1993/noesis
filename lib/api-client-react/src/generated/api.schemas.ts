@@ -13,13 +13,18 @@ export interface ApiErrorMessage {
   error: string;
 }
 
-export interface AnalysisInput {
-  /**
-     * Data URL (base64) of the uploaded image, e.g. data:image/png;base64,...
-     * @minLength 30
-     */
-  image_data_url: string;
+export interface AnalysisJobCreated {
+  analysis_id: string;
 }
+
+export type AnalysisJobStatusStatus = typeof AnalysisJobStatusStatus[keyof typeof AnalysisJobStatusStatus];
+
+
+export const AnalysisJobStatusStatus = {
+  pending: 'pending',
+  done: 'done',
+  error: 'error',
+} as const;
 
 export interface NoesisRegion {
   id: string;
@@ -63,5 +68,19 @@ export interface NoesisAnalysis {
   overall_summary: string;
   big_takeaway: string;
   regions: NoesisRegion[];
+}
+
+export interface AnalysisJobStatus {
+  status: AnalysisJobStatusStatus;
+  analysis?: NoesisAnalysis;
+  error?: string;
+}
+
+export interface AnalysisInput {
+  /**
+     * Data URL (base64) of the uploaded image, e.g. data:image/png;base64,...
+     * @minLength 30
+     */
+  image_data_url: string;
 }
 

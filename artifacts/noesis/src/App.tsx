@@ -4,7 +4,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Route, Switch, Router as WouterRouter, useLocation } from 'wouter';
 import { ErrorBoundary } from '@/components/error-boundary';
-import { useAnalyzeImage } from '@workspace/api-client-react';
+import { analyzeImage, getAnalysisStatus } from '@workspace/api-client-react';
 
 import { UploadScreen } from './components/UploadScreen';
 import { LoadingScreen } from './components/LoadingScreen';
@@ -30,10 +30,11 @@ function NoesisApp() {
   const [analysis, setAnalysis] = useState<NoesisAnalysis | null>(null);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [stepIndex, setStepIndex] = useState<number>(-1);
-  const analyze = useAnalyzeImage();
   // Monotonic request identity: only the latest analysis request may update
   // the screen — stale completions (retry/double-click races) are ignored.
   const analysisRequestSeq = useRef(0);
+  // Id of the currently running (non-superseded) analysis, or null.
+  const runningRequestId = useRef<number | null>(null);
 
   // Single owner for the object URL lifecycle: revokes the active URL on
   // replacement (new upload), reset (back to null), and unmount.
@@ -42,26 +43,59 @@ function NoesisApp() {
     return () => URL.revokeObjectURL(imageObjUrl);
   }, [imageObjUrl]);
 
+  // The analysis takes about 2 minutes server-side (two model passes), which
+  // exceeds proxy limits on a single long request — so the backend returns a
+  // job id and the client polls for the result.
+  const POLL_INTERVAL_MS = 2500;
+  const POLL_TIMEOUT_MS = 6 * 60 * 1000;
+
   const runAnalysis = async (file: File) => {
-    if (analyze.isPending) return; // guard double submission
+    // Guard double submission: block only while an active, non-superseded
+    // run exists (a reset supersedes the run and unblocks immediately).
+    if (
+      runningRequestId.current !== null &&
+      runningRequestId.current === analysisRequestSeq.current
+    ) {
+      return;
+    }
     const requestId = ++analysisRequestSeq.current;
+    runningRequestId.current = requestId;
     setScreen("loading");
     setAnalyzeError(null);
     try {
       const dataUrl = await fileToDataUrl(file);
-      const result = await analyze.mutateAsync({
-        data: { image_data_url: dataUrl },
-      });
-      if (requestId !== analysisRequestSeq.current) return; // superseded
-      setAnalysis(result);
-      setStepIndex(-1);
-      setScreen("result");
+      const { analysis_id } = await analyzeImage({ image_data_url: dataUrl });
+      const deadline = Date.now() + POLL_TIMEOUT_MS;
+      for (;;) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        if (requestId !== analysisRequestSeq.current) return; // superseded
+        const status = await getAnalysisStatus(analysis_id);
+        if (requestId !== analysisRequestSeq.current) return; // superseded
+        if (status.status === "done" && status.analysis) {
+          setAnalysis(status.analysis);
+          setStepIndex(-1);
+          setScreen("result");
+          return;
+        }
+        if (status.status === "error") {
+          throw new Error(
+            status.error ?? "The analysis failed to complete.",
+          );
+        }
+        if (Date.now() > deadline) {
+          throw new Error("The analysis timed out. Please try again.");
+        }
+      }
     } catch (err) {
       if (requestId !== analysisRequestSeq.current) return; // superseded
       setAnalyzeError(
         err instanceof Error ? err.message : "The analysis failed to complete.",
       );
       setScreen("error");
+    } finally {
+      if (runningRequestId.current === requestId) {
+        runningRequestId.current = null;
+      }
     }
   };
 

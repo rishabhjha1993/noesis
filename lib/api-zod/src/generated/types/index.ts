@@ -7,6 +7,9 @@
  */
 
 export * from './analysisInput';
+export * from './analysisJobCreated';
+export * from './analysisJobStatus';
+export * from './analysisJobStatusStatus';
 export * from './apiErrorMessage';
 export * from './healthStatus';
 export * from './noesisAnalysis';

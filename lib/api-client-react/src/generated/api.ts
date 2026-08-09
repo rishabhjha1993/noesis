@@ -21,9 +21,10 @@ import type {
 
 import type {
   AnalysisInput,
+  AnalysisJobCreated,
+  AnalysisJobStatus,
   ApiErrorMessage,
-  HealthStatus,
-  NoesisAnalysis
+  HealthStatus
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -62,12 +63,12 @@ export const getAnalyzeImageUrl = () => {
 }
 
 /**
- * Runs AI vision analysis on an uploaded image and returns a guided walkthrough payload
- * @summary Analyze an uploaded visual
+ * Starts AI vision analysis of an uploaded image and returns a job id to poll (analysis can exceed proxy request timeouts, so results are fetched via polling)
+ * @summary Start analysis of an uploaded visual
  */
-export const analyzeImage = async (analysisInput: AnalysisInput, options?: Parameters<typeof customFetch>[1]): Promise<NoesisAnalysis> => {
+export const analyzeImage = async (analysisInput: AnalysisInput, options?: Parameters<typeof customFetch>[1]): Promise<AnalysisJobCreated> => {
 
-  return customFetch<NoesisAnalysis>(getAnalyzeImageUrl(),
+  return customFetch<AnalysisJobCreated>(getAnalyzeImageUrl(),
   {
     ...options,
     method: 'POST',
@@ -112,7 +113,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type AnalyzeImageMutationError = ErrorType<ApiErrorMessage>
 
     /**
- * @summary Analyze an uploaded visual
+ * @summary Start analysis of an uploaded visual
  */
 export const useAnalyzeImage = <TError = ErrorType<ApiErrorMessage>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof analyzeImage>>, TError,{data: BodyType<AnalysisInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -124,6 +125,84 @@ export const useAnalyzeImage = <TError = ErrorType<ApiErrorMessage>,
       > => {
       return useMutation(getAnalyzeImageMutationOptions(options));
     }
+
+export const getGetAnalysisStatusUrl = (analysisId: string,) => {
+
+
+
+
+  return `/api/analyze/${analysisId}`
+}
+
+/**
+ * Returns the status of an analysis job, including the walkthrough result once done
+ * @summary Poll analysis job status
+ */
+export const getAnalysisStatus = async (analysisId: string, options?: Parameters<typeof customFetch>[1]): Promise<AnalysisJobStatus> => {
+
+  return customFetch<AnalysisJobStatus>(getGetAnalysisStatusUrl(analysisId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAnalysisStatusQueryKey = (analysisId: string,) => {
+    return [
+    `/api/analyze/${analysisId}`
+    ] as const;
+    }
+
+
+export const getGetAnalysisStatusQueryOptions = <TData = Awaited<ReturnType<typeof getAnalysisStatus>>, TError = ErrorType<ApiErrorMessage>>(analysisId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAnalysisStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAnalysisStatusQueryKey(analysisId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAnalysisStatus>>> = ({ signal }) => getAnalysisStatus(analysisId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: analysisId !== null && analysisId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAnalysisStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAnalysisStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getAnalysisStatus>>>
+export type GetAnalysisStatusQueryError = ErrorType<ApiErrorMessage>
+
+
+/**
+ * @summary Poll analysis job status
+ */
+
+export function useGetAnalysisStatus<TData = Awaited<ReturnType<typeof getAnalysisStatus>>, TError = ErrorType<ApiErrorMessage>>(
+ analysisId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAnalysisStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAnalysisStatusQueryOptions(analysisId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getHealthCheckUrl = () => {
 

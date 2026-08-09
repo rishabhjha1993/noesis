@@ -1,11 +1,15 @@
 import { Router, type IRouter } from "express";
-import OpenAI from "openai";
 import { AnalyzeImageBody } from "@workspace/api-zod";
-import { runAnalysisPipeline } from "../lib/analysisPipeline";
+import { startAnalysisJob, getAnalysisJob } from "../lib/analysisJobs";
 
 const router: IRouter = Router();
 
-router.post("/analyze", async (req, res) => {
+// Starts an analysis job and returns its id immediately. The pipeline takes
+// ~2 minutes, which exceeds the ~120s proxy limit on browser requests, so
+// the client polls GET /analyze/:analysisId for the result.
+//
+// Cache hits (same image previously analyzed) complete in milliseconds.
+router.post("/analyze", (req, res) => {
   const parsedBody = AnalyzeImageBody.safeParse(req.body);
   if (!parsedBody.success) {
     res.status(400).json({ error: "image_data_url is required" });
@@ -25,15 +29,29 @@ router.post("/analyze", async (req, res) => {
     return;
   }
 
-  try {
-    const openai = new OpenAI({ apiKey });
-    const analysis = await runAnalysisPipeline(openai, image_data_url);
-    res.json(analysis);
-  } catch (err) {
-    req.log.error({ err }, "Image analysis failed");
-    res.status(502).json({
-      error: "The analysis failed. Please try again or pick another image.",
+  const started = startAnalysisJob(apiKey, image_data_url);
+  if ("busy" in started) {
+    res.status(503).json({
+      error: "The analysis service is busy. Please try again in a moment.",
     });
+    return;
+  }
+  res.status(202).json({ analysis_id: started.analysisId });
+});
+
+router.get("/analyze/:analysisId", (req, res) => {
+  const job = getAnalysisJob(req.params.analysisId);
+  if (!job) {
+    res.status(404).json({ error: "Unknown or expired analysis" });
+    return;
+  }
+  if (job.status === "pending") {
+    res.json({ status: "pending" });
+  } else if (job.status === "done") {
+    res.setHeader("X-Noesis-Cache", job.cacheHit ? "HIT" : "MISS");
+    res.json({ status: "done", analysis: job.analysis });
+  } else {
+    res.json({ status: "error", error: job.error });
   }
 });
 

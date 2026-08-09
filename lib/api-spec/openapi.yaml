@@ -17,8 +17,8 @@ paths:
     post:
       operationId: analyzeImage
       tags: [analysis]
-      summary: Analyze an uploaded visual
-      description: Runs AI vision analysis on an uploaded image and returns a guided walkthrough payload
+      summary: Start analysis of an uploaded visual
+      description: Starts AI vision analysis of an uploaded image and returns a job id to poll (analysis can exceed proxy request timeouts, so results are fetched via polling)
       requestBody:
         required: true
         content:
@@ -26,12 +26,12 @@ paths:
             schema:
               $ref: "#/components/schemas/AnalysisInput"
       responses:
-        "200":
-          description: Analysis result
+        "202":
+          description: Analysis started
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/NoesisAnalysis"
+                $ref: "#/components/schemas/AnalysisJobCreated"
         "400":
           description: Invalid request
           content:
@@ -39,7 +39,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiErrorMessage"
         "502":
-          description: Analysis failed
+          description: Analysis could not be started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorMessage"
+  /analyze/{analysisId}:
+    get:
+      operationId: getAnalysisStatus
+      tags: [analysis]
+      summary: Poll analysis job status
+      description: Returns the status of an analysis job, including the walkthrough result once done
+      parameters:
+        - name: analysisId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Job status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalysisJobStatus"
+        "404":
+          description: Unknown or expired job
           content:
             application/json:
               schema:
@@ -73,6 +98,25 @@ components:
           type: string
       required:
         - error
+    AnalysisJobCreated:
+      type: object
+      properties:
+        analysis_id:
+          type: string
+      required:
+        - analysis_id
+    AnalysisJobStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pending, done, error]
+        analysis:
+          $ref: "#/components/schemas/NoesisAnalysis"
+        error:
+          type: string
+      required:
+        - status
     AnalysisInput:
       type: object
       properties:

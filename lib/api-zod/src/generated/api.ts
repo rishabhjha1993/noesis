@@ -9,8 +9,8 @@ import * as zod from 'zod';
 
 
 /**
- * Runs AI vision analysis on an uploaded image and returns a guided walkthrough payload
- * @summary Analyze an uploaded visual
+ * Starts AI vision analysis of an uploaded image and returns a job id to poll (analysis can exceed proxy request timeouts, so results are fetched via polling)
+ * @summary Start analysis of an uploaded visual
  */
 export const analyzeImageBodyImageDataUrlMin = 30;
 
@@ -20,24 +20,39 @@ export const AnalyzeImageBody = zod.object({
   "image_data_url": zod.string().min(analyzeImageBodyImageDataUrlMin).describe('Data URL (base64) of the uploaded image, e.g. data:image\/png;base64,...')
 })
 
-export const analyzeImageResponseRegionsItemXMin = 0;
-export const analyzeImageResponseRegionsItemXMax = 1;
-
-export const analyzeImageResponseRegionsItemYMin = 0;
-export const analyzeImageResponseRegionsItemYMax = 1;
-
-export const analyzeImageResponseRegionsItemWidthMin = 0;
-export const analyzeImageResponseRegionsItemWidthMax = 1;
-
-export const analyzeImageResponseRegionsItemHeightMin = 0;
-export const analyzeImageResponseRegionsItemHeightMax = 1;
-
-export const analyzeImageResponseRegionsItemConfidenceMin = 0;
-export const analyzeImageResponseRegionsItemConfidenceMax = 1;
-
-
-
 export const AnalyzeImageResponse = zod.object({
+  "analysis_id": zod.string()
+})
+
+
+/**
+ * Returns the status of an analysis job, including the walkthrough result once done
+ * @summary Poll analysis job status
+ */
+export const GetAnalysisStatusParams = zod.object({
+  "analysisId": zod.coerce.string()
+})
+
+export const getAnalysisStatusResponseAnalysisRegionsItemXMin = 0;
+export const getAnalysisStatusResponseAnalysisRegionsItemXMax = 1;
+
+export const getAnalysisStatusResponseAnalysisRegionsItemYMin = 0;
+export const getAnalysisStatusResponseAnalysisRegionsItemYMax = 1;
+
+export const getAnalysisStatusResponseAnalysisRegionsItemWidthMin = 0;
+export const getAnalysisStatusResponseAnalysisRegionsItemWidthMax = 1;
+
+export const getAnalysisStatusResponseAnalysisRegionsItemHeightMin = 0;
+export const getAnalysisStatusResponseAnalysisRegionsItemHeightMax = 1;
+
+export const getAnalysisStatusResponseAnalysisRegionsItemConfidenceMin = 0;
+export const getAnalysisStatusResponseAnalysisRegionsItemConfidenceMax = 1;
+
+
+
+export const GetAnalysisStatusResponse = zod.object({
+  "status": zod.enum(['pending', 'done', 'error']),
+  "analysis": zod.object({
   "title": zod.string(),
   "image_type": zod.string(),
   "central_question": zod.string(),
@@ -46,17 +61,19 @@ export const AnalyzeImageResponse = zod.object({
   "regions": zod.array(zod.object({
   "id": zod.string(),
   "label": zod.string(),
-  "x": zod.number().min(analyzeImageResponseRegionsItemXMin).max(analyzeImageResponseRegionsItemXMax),
-  "y": zod.number().min(analyzeImageResponseRegionsItemYMin).max(analyzeImageResponseRegionsItemYMax),
-  "width": zod.number().min(analyzeImageResponseRegionsItemWidthMin).max(analyzeImageResponseRegionsItemWidthMax),
-  "height": zod.number().min(analyzeImageResponseRegionsItemHeightMin).max(analyzeImageResponseRegionsItemHeightMax),
+  "x": zod.number().min(getAnalysisStatusResponseAnalysisRegionsItemXMin).max(getAnalysisStatusResponseAnalysisRegionsItemXMax),
+  "y": zod.number().min(getAnalysisStatusResponseAnalysisRegionsItemYMin).max(getAnalysisStatusResponseAnalysisRegionsItemYMax),
+  "width": zod.number().min(getAnalysisStatusResponseAnalysisRegionsItemWidthMin).max(getAnalysisStatusResponseAnalysisRegionsItemWidthMax),
+  "height": zod.number().min(getAnalysisStatusResponseAnalysisRegionsItemHeightMin).max(getAnalysisStatusResponseAnalysisRegionsItemHeightMax),
   "sequence_order": zod.number(),
   "explanation": zod.string(),
   "why_it_matters": zod.string(),
   "related_region_ids": zod.array(zod.string()),
   "relationship_explanation": zod.string(),
-  "confidence": zod.number().min(analyzeImageResponseRegionsItemConfidenceMin).max(analyzeImageResponseRegionsItemConfidenceMax)
+  "confidence": zod.number().min(getAnalysisStatusResponseAnalysisRegionsItemConfidenceMin).max(getAnalysisStatusResponseAnalysisRegionsItemConfidenceMax)
 }))
+}).optional(),
+  "error": zod.string().optional()
 })
 
 

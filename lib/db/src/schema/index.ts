@@ -1,20 +1,16 @@
-// Export your models here. Add one export per file
-// export * from "./posts";
-//
-// Each model/table should ideally be split into different files.
-// Each model/table should define a Drizzle table, insert schema, and types:
-//
-//   import { pgTable, text, serial } from "drizzle-orm/pg-core";
-//   import { createInsertSchema } from "drizzle-zod";
-//   import { z } from "zod/v4";
-//
-//   export const postsTable = pgTable("posts", {
-//     id: serial("id").primaryKey(),
-//     title: text("title").notNull(),
-//   });
-//
-//   export const insertPostSchema = createInsertSchema(postsTable).omit({ id: true });
-//   export type InsertPost = z.infer<typeof insertPostSchema>;
-//   export type Post = typeof postsTable.$inferSelect;
+import { pgTable, text, timestamp, jsonb } from "drizzle-orm/pg-core";
 
-export {}
+// Persistent analysis cache. Keyed by a versioned SHA-256 of the image bytes.
+// Allows instant cache-hit returns for previously-analyzed images without
+// re-running the two GPT model passes.
+export const analysisCacheTable = pgTable("analysis_cache", {
+  cacheKey: text("cache_key").primaryKey(),
+  imageHash: text("image_hash").notNull(),
+  analysisVersion: text("analysis_version").notNull(),
+  analysisJson: jsonb("analysis_json").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  lastAccessedAt: timestamp("last_accessed_at"),
+});
+
+export type AnalysisCacheRow = typeof analysisCacheTable.$inferSelect;
+export type InsertAnalysisCacheRow = typeof analysisCacheTable.$inferInsert;

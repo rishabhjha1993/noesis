@@ -80,7 +80,21 @@ Do NOT return a region for the chart title unless the title itself is genuinely 
 
 Do NOT select decorative logos, footnotes, source text, or headers as explanatory regions unless essential.
 
-Continue returning exactly 4–6 regions.`;
+Continue returning exactly 4–6 regions.
+
+TEACHING EVIDENCE RULE
+
+Whenever a region's importance or the overall big takeaway can be supported by clearly legible quantitative or categorical evidence visible in the image, include that evidence in the explanation.
+
+Useful evidence includes clearly legible values, percentages, differences, rankings, labeled flows, named components, visible before/after states, and explicit relationships represented by arrows or connections.
+
+Prefer insight plus grounded visible evidence, such as:
+- "61.5 quads become rejected energy compared with 32.1 quads of useful energy services."
+- "Transportation receives 24.8 quads from petroleum."
+
+Never invent a value or guess text that is not clearly legible. Never force numerical evidence when the visual is qualitative. Keep the explanation concise; evidence should support the teaching insight rather than become a list of extracted labels.
+
+Apply this principle to big_takeaway, explanation, why_it_matters, and relationship_explanation where useful.`;
 
 function clamp01(n: number): number {
   return Math.min(1, Math.max(0, n));

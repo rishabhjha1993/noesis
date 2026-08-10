@@ -6,7 +6,7 @@
 
 ## Current Product State
 
-The legacy Noesis experience works as a standalone full-stack Node service. The React upload/result UI, Express API, asynchronous analysis jobs and polling, deterministic evidence computation, OpenAI analysis pipeline, cache support, and evaluation infrastructure are preserved. Platform-independent production serving, minimum public-safety controls, instrumentation, and evaluation infrastructure are checkpointed in Git and deployed. Discovery Engine V1 now exists as the parallel, experimental branch path at `/discovery-lab`; it is committed and pushed but has not been deployed or qualitatively evaluated on real visuals yet. The lab can copy a complete safe eval JSON projection of a completed run for human review.
+The legacy Noesis experience works as a standalone full-stack Node service. The React upload/result UI, Express API, asynchronous analysis jobs and polling, deterministic evidence computation, OpenAI analysis pipeline, cache support, and evaluation infrastructure are preserved. Platform-independent production serving, minimum public-safety controls, instrumentation, and evaluation infrastructure are checkpointed in Git and deployed. Discovery Engine V1 now exists as the parallel, experimental branch path at `/discovery-lab`; it is committed and pushed but has not been deployed or qualitatively evaluated on real visuals yet. The lab can copy a complete safe eval JSON projection of a completed run for human review and shows safe stage-aware diagnostics with partial known cost and token usage when a run fails.
 
 ## Live Deployment
 
@@ -21,7 +21,7 @@ The legacy Noesis experience works as a standalone full-stack Node service. The 
 
 ## Current Milestone
 
-Discovery Engine V1 verified identity context is implemented and technically verified. The next milestone is a controlled V0-vs-V1 rerun of the Noordoostpolder and Pantheon inputs.
+Discovery Engine V1 verified identity context and failure observability are implemented and technically verified. The next milestone is one controlled Pantheon rerun, followed by diagnosis of the actual failure if it recurs.
 
 ## Completed
 
@@ -42,11 +42,13 @@ Discovery Engine V1 verified identity context is implemented and technically ver
 - Stage 1 optional visually grounded identity hypotheses and per-candidate identity-context-needed flags.
 - At most one conditional Terra identity-verification operation inside Stage 2, with verified context reused only for mapped, already-approved visual questions.
 - Strict verified/unverified/conflicted identity handling, source validation, anti-similarity safeguards, V1 instrumentation, safe eval artifacts, and `discovery-engine-v1` cache identity.
+- Safe failed-run diagnostics and partial known-cost visibility committed and pushed as `482793c`; failed jobs now retain the failed stage/category, candidate and question ids when available, elapsed runtime, last completed stage, completed research-call metrics, attempted-call count, and all usage/cost already returned before failure.
+- Structured server logs now serialize a safe error detail instead of `{}`, while the failed polling response and secondary `/discovery-lab` eval panel receive only the sanitized diagnostic projection.
 
 ## In Progress
 
 - No implementation work is currently in progress.
-- Discovery V1 awaits the controlled Noordoostpolder and Pantheon rerun; ranking/filler suppression remains explicitly out of scope.
+- Discovery V1 awaits one controlled Pantheon rerun; ranking/filler suppression and cost optimization remain explicitly out of scope until the observed failure is understood.
 
 ## Verification
 
@@ -76,10 +78,15 @@ Latest verified on 2026-08-10:
 - Discovery V1 full build: passed for the API server, Noesis frontend, and mockup sandbox; the existing non-fatal Vite sourcemap warning remains.
 - Discovery V1 local runtime: a no-cost mocked verified-identity result completed in `/discovery-lab`; V1 identity status/reuse instrumentation rendered, `Copy full eval JSON` reached `Copied` after its `JSON.parse` guard, and `/` rendered the unchanged legacy upload UI with no browser warnings or errors.
 - Discovery V1 paid model call: not run. Real identity accuracy, research answer rate, quality, latency, and cost remain intentionally unevaluated until the controlled rerun.
+- Discovery failure diagnostics typecheck: passed across all workspace projects.
+- Discovery failure diagnostics tests: 60/60 total repository tests passed, including 13 focused mocked checks for Stage 1, identity verification, candidate-2 research, returned partial usage, Stage 3, schema validation, source validation, timeout, safe logging, failed job status, secret/reasoning-token exclusion, and unchanged successful V1 behavior.
+- Discovery failure diagnostics full build: passed for the API server, Noesis frontend, and mockup sandbox; the existing non-fatal Vite sourcemap warning remains.
+- Discovery failure diagnostics local runtime: the rebuilt `/discovery-lab` upload state and legacy `/` rendered with no browser console errors. Forced failures and a successful run were exercised with local mocks; no paid model call was made.
+- Safety/diff review: no production prompt, model, reasoning level, token limit, research gate, ranking, cache, or Discovery intelligence field changed. Browser diagnostics exclude raw provider errors, stacks, prompts, image data, API keys, and reasoning-token breakdowns.
 
 ## Latest Stable Commit
 
-`afbfe2b` — Discovery Engine V1 verified identity context and technical verification checkpoint.
+`482793c` — safe Discovery failed-run diagnostics and partial known-cost visibility.
 
 ## Important Decisions
 
@@ -98,6 +105,8 @@ Latest verified on 2026-08-10:
 - Identity resolution remains a conditional substep inside Stage 2 and may only support questions already triggered by visible evidence.
 - V1 runs identity verification only when a gated candidate explicitly needs it and Stage 1 supplied a grounded relevant hypothesis. Verified context is reused only for mapped questions; unverified/conflicted hypotheses are withheld from candidate research and Stage 3.
 - Shared typography and generic similarity are explicitly insufficient verification bases; verified identity requires validated sources and at least one stronger exact-match basis.
+- Failed Discovery jobs expose only a sanitized diagnostic projection to the browser. Raw provider error details and server-only stacks remain in redacted structured logs; prompts, request bodies, secrets, images, and reasoning-token breakdowns are not returned.
+- Failure observability is measurement-only: V1 prompts, models, reasoning levels, research gate, ranking, cache identity/behavior, and successful result contracts remain unchanged.
 
 ## Known Issues / Risks
 
@@ -109,11 +118,13 @@ Latest verified on 2026-08-10:
 - Discovery V0 cache and jobs are process-local; cached metrics describe the original cold run, while the polling response separately reports cache hit or miss.
 - V0 Stage 3 currently receives an explicit empty deterministic-calculations list. Reusing legacy calculations would require an additional legacy evidence-extraction call, which would violate V0's three-stage constraint.
 - Discovery cost instrumentation uses the existing token-pricing convention and does not add separately metered web-search tool fees, if applicable.
-- Failed Discovery jobs return a sanitized error and are logged, but partial per-stage metrics are not returned to the lab UI.
+- Failed Discovery diagnostics remain process-local with the existing in-memory job TTL; they are not a durable run-history store.
 - Shared typography, motifs, generic structures, or partial visual similarity can produce false exact-object matches; the Pantheon run demonstrates that this is a research-integrity risk rather than only a ranking problem.
 - V1 identity verification is limited to one operation and one verified hypothesis per run; multiple genuinely distinct identities in one image remain outside this first implementation.
 - No real-model V1 call has yet confirmed how reliably Sol proposes identity hypotheses or Terra classifies verified versus unverified/conflicted cases.
 
 ## Next Step
 
-Rerun the same Noordoostpolder and Pantheon inputs and compare V0 vs V1 for identity accuracy, research answer rate, discovery quality, latency and cost.
+1. Rerun the Pantheon input once with the new diagnostics.
+2. Diagnose and resolve the actual failure if it remains reproducible.
+3. After failure analysis, begin cost optimization without compromising Discovery quality.

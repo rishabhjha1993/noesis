@@ -51,6 +51,30 @@ export const DiscoveryCandidateSchema = z
     investigation_question: NonEmptyText,
     research_needed: z.boolean(),
     research_rationale: z.string(),
+    identity_context_needed: z.boolean(),
+  })
+  .strict();
+
+export const DiscoveryIdentityHypothesisSchema = z
+  .object({
+    id: NonEmptyText,
+    proposed_identity: NonEmptyText,
+    identity_type: z.enum([
+      "place",
+      "building",
+      "object",
+      "figure",
+      "map",
+      "artwork",
+      "diagram",
+      "other",
+    ]),
+    visible_evidence: z.array(z.string().trim().min(8)).min(1).max(8),
+    observed_labels_or_numbers: z.array(NonEmptyText).max(12),
+    region_ids: z.array(NonEmptyText).min(1),
+    confidence: z.number().min(0).max(1),
+    verification_would_help: z.boolean(),
+    relevant_question_ids: z.array(NonEmptyText).max(8),
   })
   .strict();
 
@@ -59,6 +83,7 @@ export const DiscoveryStage1Schema = z
     image_summary: NonEmptyText,
     regions: z.array(DiscoveryRegionSchema).min(1).max(12),
     candidates: z.array(DiscoveryCandidateSchema).max(8),
+    identity_hypotheses: z.array(DiscoveryIdentityHypothesisSchema).max(4),
   })
   .strict()
   .superRefine((stage1, context) => {
@@ -99,6 +124,51 @@ export const DiscoveryStage1Schema = z
         }
       }
     }
+
+    const hypothesisIds = new Set<string>();
+    for (const hypothesis of stage1.identity_hypotheses) {
+      if (hypothesisIds.has(hypothesis.id)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Duplicate identity hypothesis id: ${hypothesis.id}`,
+        });
+      }
+      hypothesisIds.add(hypothesis.id);
+      for (const regionId of hypothesis.region_ids) {
+        if (!regionIds.has(regionId)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Identity hypothesis ${hypothesis.id} references unknown region ${regionId}`,
+          });
+        }
+      }
+      for (const questionId of hypothesis.relevant_question_ids) {
+        if (!questionIds.has(questionId)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Identity hypothesis ${hypothesis.id} references unknown question ${questionId}`,
+          });
+        }
+      }
+      if (
+        hypothesis.verification_would_help &&
+        hypothesis.relevant_question_ids.length === 0
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Identity hypothesis ${hypothesis.id} must identify a relevant question`,
+        });
+      }
+      if (
+        !hypothesis.verification_would_help &&
+        hypothesis.relevant_question_ids.length > 0
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Identity hypothesis ${hypothesis.id} cannot reference questions when verification would not help`,
+        });
+      }
+    }
   });
 
 export const DiscoverySourceSchema = z
@@ -127,6 +197,89 @@ export const DiscoveryResearchResultSchema = z
       });
     }
   });
+
+export const DiscoveryIdentityMatchEvidenceSchema = z
+  .object({
+    basis: z.enum([
+      "shared_label_or_typography",
+      "generic_visual_similarity",
+      "measurement",
+      "geographic_configuration",
+      "architectural_configuration",
+      "source_explicit_identification",
+      "provenance",
+    ]),
+    detail: z.string().trim().min(8),
+  })
+  .strict();
+
+export const DiscoveryIdentityVerificationDraftSchema = z
+  .object({
+    status: z.enum(["verified", "unverified", "conflicted"]),
+    hypothesis_id: NonEmptyText,
+    canonical_identity: NonEmptyText.nullable(),
+    identity_type: z
+      .enum([
+        "place",
+        "building",
+        "object",
+        "figure",
+        "map",
+        "artwork",
+        "diagram",
+        "other",
+      ])
+      .nullable(),
+    location: NonEmptyText.nullable(),
+    verification_basis: NonEmptyText,
+    confidence: z.number().min(0).max(1),
+    match_evidence: z.array(DiscoveryIdentityMatchEvidenceSchema).max(8),
+  })
+  .strict();
+
+export const DiscoveryIdentityVerificationSchema =
+  DiscoveryIdentityVerificationDraftSchema.extend({
+    sources: z.array(DiscoverySourceSchema),
+  })
+    .strict()
+    .superRefine((result, context) => {
+      if (result.status === "verified") {
+        if (!result.canonical_identity || !result.identity_type) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Verified identity requires a canonical identity and type",
+          });
+        }
+        if (result.sources.length === 0) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Verified identity requires validated sources",
+          });
+        }
+        const exactEvidence = result.match_evidence.some(
+          (item) =>
+            item.basis !== "shared_label_or_typography" &&
+            item.basis !== "generic_visual_similarity",
+        );
+        if (!exactEvidence) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              "Shared typography or generic similarity alone cannot verify identity",
+          });
+        }
+      } else if (
+        result.canonical_identity !== null ||
+        result.identity_type !== null ||
+        result.location !== null
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Unverified or conflicted identity cannot expose a canonical identity",
+        });
+      }
+    });
 
 const DiscoveryProvenanceSchema = z.enum([
   "seen",
@@ -168,16 +321,23 @@ export const DiscoveryStage3Schema = z
 
 export type DiscoveryRegion = z.infer<typeof DiscoveryRegionSchema>;
 export type DiscoveryCandidate = z.infer<typeof DiscoveryCandidateSchema>;
+export type DiscoveryIdentityHypothesis = z.infer<
+  typeof DiscoveryIdentityHypothesisSchema
+>;
 export type DiscoveryStage1 = z.infer<typeof DiscoveryStage1Schema>;
 export type DiscoverySource = z.infer<typeof DiscoverySourceSchema>;
 export type DiscoveryResearchResult = z.infer<
   typeof DiscoveryResearchResultSchema
+>;
+export type DiscoveryIdentityVerification = z.infer<
+  typeof DiscoveryIdentityVerificationSchema
 >;
 export type Discovery = z.infer<typeof DiscoverySchema>;
 export type DiscoveryDraft = z.infer<typeof DiscoveryDraftSchema>;
 
 export interface DiscoveryInspection {
   stage1: DiscoveryStage1;
+  identity_verification: DiscoveryIdentityVerification | null;
   research_results: DiscoveryResearchResult[];
   discovery_candidates: Record<string, string[]>;
 }
@@ -263,10 +423,32 @@ export function validateResearchResults(
   return parsed;
 }
 
+export function validateIdentityVerification(
+  stage1: DiscoveryStage1,
+  input: unknown,
+  sources: DiscoverySource[],
+): DiscoveryIdentityVerification {
+  const draft = DiscoveryIdentityVerificationDraftSchema.parse(input);
+  if (
+    !stage1.identity_hypotheses.some(
+      (hypothesis) => hypothesis.id === draft.hypothesis_id,
+    )
+  ) {
+    throw new Error(
+      `Identity verification references unknown hypothesis ${draft.hypothesis_id}`,
+    );
+  }
+  return DiscoveryIdentityVerificationSchema.parse({
+    ...draft,
+    sources: z.array(DiscoverySourceSchema).parse(sources),
+  });
+}
+
 export function validateDiscoveryOutput(
   stage1: DiscoveryStage1,
   researchResults: DiscoveryResearchResult[],
   input: unknown,
+  identityVerification: DiscoveryIdentityVerification | null = null,
 ): ValidatedDiscoveries {
   const parsed = DiscoveryStage3Schema.parse(input);
   const regionIds = new Set(stage1.regions.map((region) => region.id));
@@ -307,6 +489,24 @@ export function validateDiscoveryOutput(
       const result = research.get(candidateId);
       if (result?.status === "answered") {
         for (const source of result.sources) allowedSources.add(source.url);
+      }
+    }
+    if (identityVerification?.status === "verified") {
+      const hypothesis = stage1.identity_hypotheses.find(
+        (item) => item.id === identityVerification.hypothesis_id,
+      );
+      const identityIsRelevant = draft.candidate_ids.some((candidateId) => {
+        const candidate = candidates.get(candidateId);
+        return Boolean(
+          candidate?.identity_context_needed &&
+          hypothesis?.verification_would_help &&
+          hypothesis.relevant_question_ids.includes(candidate.question_id),
+        );
+      });
+      if (identityIsRelevant) {
+        for (const source of identityVerification.sources) {
+          allowedSources.add(source.url);
+        }
       }
     }
 
@@ -405,6 +605,7 @@ export const DISCOVERY_STAGE1_JSON_SCHEMA = {
             investigation_question: stringSchema,
             research_needed: { type: "boolean" },
             research_rationale: { type: "string" },
+            identity_context_needed: { type: "boolean" },
           },
           required: [
             "id",
@@ -415,11 +616,136 @@ export const DISCOVERY_STAGE1_JSON_SCHEMA = {
             "investigation_question",
             "research_needed",
             "research_rationale",
+            "identity_context_needed",
+          ],
+        },
+      },
+      identity_hypotheses: {
+        type: "array",
+        maxItems: 4,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            id: stringSchema,
+            proposed_identity: stringSchema,
+            identity_type: {
+              type: "string",
+              enum: [
+                "place",
+                "building",
+                "object",
+                "figure",
+                "map",
+                "artwork",
+                "diagram",
+                "other",
+              ],
+            },
+            visible_evidence: {
+              type: "array",
+              minItems: 1,
+              maxItems: 8,
+              items: { type: "string", minLength: 8 },
+            },
+            observed_labels_or_numbers: {
+              type: "array",
+              maxItems: 12,
+              items: stringSchema,
+            },
+            region_ids: { type: "array", minItems: 1, items: stringSchema },
+            confidence: { type: "number", minimum: 0, maximum: 1 },
+            verification_would_help: { type: "boolean" },
+            relevant_question_ids: {
+              type: "array",
+              maxItems: 8,
+              items: stringSchema,
+            },
+          },
+          required: [
+            "id",
+            "proposed_identity",
+            "identity_type",
+            "visible_evidence",
+            "observed_labels_or_numbers",
+            "region_ids",
+            "confidence",
+            "verification_would_help",
+            "relevant_question_ids",
           ],
         },
       },
     },
-    required: ["image_summary", "regions", "candidates"],
+    required: ["image_summary", "regions", "candidates", "identity_hypotheses"],
+  },
+} as const;
+
+export const DISCOVERY_IDENTITY_VERIFICATION_JSON_SCHEMA = {
+  type: "json_schema",
+  name: "noesis_discovery_identity_verification",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      status: {
+        type: "string",
+        enum: ["verified", "unverified", "conflicted"],
+      },
+      hypothesis_id: stringSchema,
+      canonical_identity: { type: ["string", "null"], minLength: 1 },
+      identity_type: {
+        type: ["string", "null"],
+        enum: [
+          "place",
+          "building",
+          "object",
+          "figure",
+          "map",
+          "artwork",
+          "diagram",
+          "other",
+          null,
+        ],
+      },
+      location: { type: ["string", "null"], minLength: 1 },
+      verification_basis: stringSchema,
+      confidence: { type: "number", minimum: 0, maximum: 1 },
+      match_evidence: {
+        type: "array",
+        maxItems: 8,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            basis: {
+              type: "string",
+              enum: [
+                "shared_label_or_typography",
+                "generic_visual_similarity",
+                "measurement",
+                "geographic_configuration",
+                "architectural_configuration",
+                "source_explicit_identification",
+                "provenance",
+              ],
+            },
+            detail: { type: "string", minLength: 8 },
+          },
+          required: ["basis", "detail"],
+        },
+      },
+    },
+    required: [
+      "status",
+      "hypothesis_id",
+      "canonical_identity",
+      "identity_type",
+      "location",
+      "verification_basis",
+      "confidence",
+      "match_evidence",
+    ],
   },
 } as const;
 

@@ -8,8 +8,8 @@ import {
   UploadCloud,
 } from "lucide-react";
 import {
-  getDiscoveryV0Status,
-  startDiscoveryV0,
+  getDiscoveryStatus,
+  startDiscovery,
   type Discovery,
   type DiscoveryRunResult,
 } from "@workspace/api-client-react";
@@ -176,13 +176,13 @@ export function DiscoveryLab() {
     setError(null);
     try {
       const dataUrl = await fileToDataUrl(file);
-      const discoveryId = await startDiscoveryV0(dataUrl);
+      const discoveryId = await startDiscovery(dataUrl);
       setDiscoveryId(discoveryId);
       const deadline = Date.now() + POLL_TIMEOUT_MS;
       for (;;) {
         await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
         if (requestId !== requestSequence.current) return;
-        const job = await getDiscoveryV0Status(discoveryId);
+        const job = await getDiscoveryStatus(discoveryId);
         if (job.status === "done") {
           setResult(job.result);
           setCacheHit(job.cache_hit);
@@ -238,7 +238,7 @@ export function DiscoveryLab() {
         <header className="flex flex-wrap items-center justify-between gap-4 border-b border-border px-5 py-4 lg:px-8">
           <div>
             <div className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">
-              <FlaskConical className="h-4 w-4" /> Discovery Engine V0
+              <FlaskConical className="h-4 w-4" /> Discovery Engine V1
             </div>
             <h1 className="mt-1 font-serif text-2xl">Human evaluation lab</h1>
           </div>
@@ -287,7 +287,7 @@ export function DiscoveryLab() {
                   No discovery cleared the bar
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  V0 returned zero rather than padding the result with generic
+                  V1 returned zero rather than padding the result with generic
                   findings.
                 </p>
               </div>
@@ -406,6 +406,23 @@ export function DiscoveryLab() {
                   </span>
                 </div>
                 <p>{result.inspection.stage1.image_summary}</p>
+                <div className="rounded-md border border-border bg-background p-3">
+                  <p>
+                    <strong className="text-foreground">
+                      Identity verification:
+                    </strong>{" "}
+                    {result.metrics.stage2.identity_verification.status}
+                  </p>
+                  <p>
+                    <strong className="text-foreground">
+                      Candidate calls using verified identity:
+                    </strong>{" "}
+                    {
+                      result.metrics.stage2
+                        .candidate_calls_using_verified_identity
+                    }
+                  </p>
+                </div>
                 {(selectedCandidates ?? []).map((candidate) => {
                   const research = result.inspection.research_results.find(
                     (item) => item.candidate_id === candidate.id,
@@ -481,7 +498,7 @@ export function DiscoveryLab() {
       <div className="w-full max-w-2xl">
         <div className="mb-8 text-center">
           <div className="mb-3 flex items-center justify-center gap-2 text-xs uppercase tracking-[0.24em] text-muted-foreground">
-            <FlaskConical className="h-4 w-4" /> Experimental · V0
+            <FlaskConical className="h-4 w-4" /> Experimental · V1
           </div>
           <h1 className="font-serif text-4xl">Noesis Discovery Lab</h1>
           <p className="mt-3 text-muted-foreground">
@@ -520,7 +537,7 @@ export function DiscoveryLab() {
                 onClick={() => void run()}
                 className="rounded-md bg-primary px-6 py-3 font-medium text-primary-foreground hover:bg-primary/90"
               >
-                Run Discovery V0
+                Run Discovery V1
               </button>
               <label className="cursor-pointer rounded-md border border-border px-6 py-3 font-medium hover:bg-muted">
                 Choose another

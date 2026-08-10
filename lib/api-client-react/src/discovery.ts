@@ -19,6 +19,27 @@ export interface DiscoveryCandidate {
   investigation_question: string;
   research_needed: boolean;
   research_rationale: string;
+  identity_context_needed: boolean;
+}
+
+export interface DiscoveryIdentityHypothesis {
+  id: string;
+  proposed_identity: string;
+  identity_type:
+    | "place"
+    | "building"
+    | "object"
+    | "figure"
+    | "map"
+    | "artwork"
+    | "diagram"
+    | "other";
+  visible_evidence: string[];
+  observed_labels_or_numbers: string[];
+  region_ids: string[];
+  confidence: number;
+  verification_would_help: boolean;
+  relevant_question_ids: string[];
 }
 
 export interface DiscoverySource {
@@ -32,6 +53,28 @@ export interface DiscoveryResearchResult {
   question: string;
   status: "answered" | "insufficient";
   finding: string;
+  sources: DiscoverySource[];
+}
+
+export interface DiscoveryIdentityVerification {
+  status: "verified" | "unverified" | "conflicted";
+  hypothesis_id: string;
+  canonical_identity: string | null;
+  identity_type: DiscoveryIdentityHypothesis["identity_type"] | null;
+  location: string | null;
+  verification_basis: string;
+  confidence: number;
+  match_evidence: Array<{
+    basis:
+      | "shared_label_or_typography"
+      | "generic_visual_similarity"
+      | "measurement"
+      | "geographic_configuration"
+      | "architectural_configuration"
+      | "source_explicit_identification"
+      | "provenance";
+    detail: string;
+  }>;
   sources: DiscoverySource[];
 }
 
@@ -72,6 +115,15 @@ export interface DiscoveryResearchCallMetrics extends DiscoveryStageMetrics {
   candidate_id: string;
   question_id: string;
   status: "answered" | "insufficient";
+  used_verified_identity_context: boolean;
+}
+
+export interface DiscoveryIdentityVerificationMetrics {
+  ran: boolean;
+  status: "not_run" | "verified" | "unverified" | "conflicted";
+  usage: DiscoveryUsageMetrics | null;
+  cost_usd: number | null;
+  cost_reason: string | null;
 }
 
 export interface DiscoveryRunResult {
@@ -83,7 +135,9 @@ export interface DiscoveryRunResult {
       image_summary: string;
       regions: DiscoveryRegion[];
       candidates: DiscoveryCandidate[];
+      identity_hypotheses: DiscoveryIdentityHypothesis[];
     };
+    identity_verification: DiscoveryIdentityVerification | null;
     research_results: DiscoveryResearchResult[];
     discovery_candidates: Record<string, string[]>;
   };
@@ -99,6 +153,8 @@ export interface DiscoveryRunResult {
       latency_ms: number;
       usage: DiscoveryUsageMetrics;
       cost_usd: number | null;
+      identity_verification: DiscoveryIdentityVerificationMetrics;
+      candidate_calls_using_verified_identity: number;
       calls: DiscoveryResearchCallMetrics[];
     };
     stage3: DiscoveryStageMetrics & {
@@ -117,7 +173,7 @@ export type DiscoveryJobStatus =
   | { status: "done"; result: DiscoveryRunResult; cache_hit: boolean }
   | { status: "error"; error?: string };
 
-export async function startDiscoveryV0(imageDataUrl: string): Promise<string> {
+export async function startDiscovery(imageDataUrl: string): Promise<string> {
   const result = await customFetch<{ discovery_id: string }>("/api/discovery", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -127,7 +183,7 @@ export async function startDiscoveryV0(imageDataUrl: string): Promise<string> {
   return result.discovery_id;
 }
 
-export function getDiscoveryV0Status(
+export function getDiscoveryStatus(
   discoveryId: string,
 ): Promise<DiscoveryJobStatus> {
   return customFetch<DiscoveryJobStatus>(

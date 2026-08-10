@@ -10,7 +10,7 @@ import {
 } from "../../artifacts/noesis/src/lib/discoveryEval";
 
 const resultFixture: DiscoveryRunResult = {
-  version: "discovery-engine-v0",
+  version: "discovery-engine-v1",
   regions: [
     {
       id: "r1",
@@ -67,7 +67,39 @@ const resultFixture: DiscoveryRunResult = {
           research_needed: true,
           research_rationale:
             "A verified event could explain the visible direction change.",
+          identity_context_needed: true,
         },
+      ],
+      identity_hypotheses: [
+        {
+          id: "ih1",
+          proposed_identity: "Example reversal chart",
+          identity_type: "figure",
+          visible_evidence: ["The final segment reverses sharply upward."],
+          observed_labels_or_numbers: ["2026"],
+          region_ids: ["r1"],
+          confidence: 0.72,
+          verification_would_help: true,
+          relevant_question_ids: ["q1"],
+        },
+      ],
+    },
+    identity_verification: {
+      status: "verified",
+      hypothesis_id: "ih1",
+      canonical_identity: "Example reversal chart",
+      identity_type: "figure",
+      location: null,
+      verification_basis: "A source explicitly identifies the chart.",
+      confidence: 0.94,
+      match_evidence: [
+        {
+          basis: "source_explicit_identification",
+          detail: "The source explicitly names the figure and its endpoint.",
+        },
+      ],
+      sources: [
+        { title: "Identity source", url: "https://example.com/identity" },
       ],
     },
     research_results: [
@@ -87,7 +119,7 @@ const resultFixture: DiscoveryRunResult = {
   },
   metrics: {
     timestamp: "2026-08-10T12:00:00.000Z",
-    engine_version: "discovery-engine-v0",
+    engine_version: "discovery-engine-v1",
     success: true,
     stage1: {
       usage: {
@@ -107,23 +139,41 @@ const resultFixture: DiscoveryRunResult = {
       model: "gpt-5.6-terra",
       reasoning_effort: "medium",
       questions_sent: 1,
-      latency_ms: 800,
+      latency_ms: 1600,
       usage: {
         model: "gpt-5.6-terra",
         reasoning_effort: "medium",
-        input_tokens: 80,
+        input_tokens: 160,
         cached_input_tokens: 0,
-        output_tokens: 30,
-        reasoning_tokens: 8,
-        total_tokens: 110,
-        latency_ms: 800,
+        output_tokens: 60,
+        reasoning_tokens: 16,
+        total_tokens: 220,
+        latency_ms: 1600,
       },
-      cost_usd: 0.00065,
+      cost_usd: 0.0013,
+      identity_verification: {
+        ran: true,
+        status: "verified",
+        usage: {
+          model: "gpt-5.6-terra",
+          reasoning_effort: "medium",
+          input_tokens: 80,
+          cached_input_tokens: 0,
+          output_tokens: 30,
+          reasoning_tokens: 8,
+          total_tokens: 110,
+          latency_ms: 800,
+        },
+        cost_usd: 0.00065,
+        cost_reason: null,
+      },
+      candidate_calls_using_verified_identity: 1,
       calls: [
         {
           candidate_id: "c1",
           question_id: "q1",
           status: "answered",
+          used_verified_identity_context: true,
           usage: {
             model: "gpt-5.6-terra",
             reasoning_effort: "medium",
@@ -154,27 +204,31 @@ const resultFixture: DiscoveryRunResult = {
       cost_reason: null,
       discoveries_returned: 1,
     },
-    total_latency_ms: 3000,
-    total_cost_usd: 0.00575,
+    total_latency_ms: 3800,
+    total_cost_usd: 0.0064,
     stage1_candidates: 1,
     research_gate_passed: 1,
     final_discoveries: 1,
   },
 };
 
-test("full eval payload preserves all validated V0 artifacts and cache identity", () => {
+test("full eval payload preserves all validated V1 artifacts and cache identity", () => {
   const payload = createDiscoveryEvalPayload({
     result: resultFixture,
     discoveryId: "run-123",
     cacheHit: true,
   });
   assert.equal(payload.discovery_id, "run-123");
-  assert.equal(payload.version, "discovery-engine-v0");
+  assert.equal(payload.version, "discovery-engine-v1");
   assert.equal(payload.cache_hit, true);
   assert.deepEqual(payload.inspection.stage1, resultFixture.inspection.stage1);
   assert.deepEqual(
     payload.inspection.research_results,
     resultFixture.inspection.research_results,
+  );
+  assert.deepEqual(
+    payload.inspection.identity_verification,
+    resultFixture.inspection.identity_verification,
   );
   assert.deepEqual(payload.discoveries, resultFixture.discoveries);
   assert.equal(payload.metrics.stage2.calls[0]!.question_id, "q1");
@@ -184,6 +238,10 @@ test("full eval payload preserves all validated V0 artifacts and cache identity"
   );
   assert.equal("reasoning_tokens" in payload.metrics.stage1.usage, false);
   assert.equal("reasoning_tokens" in payload.metrics.stage2.usage, false);
+  assert.equal(
+    "reasoning_tokens" in payload.metrics.stage2.identity_verification.usage!,
+    false,
+  );
   assert.equal(
     "reasoning_tokens" in payload.metrics.stage2.calls[0]!.usage,
     false,

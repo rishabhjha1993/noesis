@@ -44,6 +44,7 @@ const stage1Fixture: DiscoveryStage1 = {
       research_needed: true,
       research_rationale:
         "A verified event could explain why the visible series changes direction.",
+      identity_context_needed: false,
     },
     {
       id: "c2",
@@ -57,8 +58,10 @@ const stage1Fixture: DiscoveryStage1 = {
         "How large is the visible difference between the final two points?",
       research_needed: false,
       research_rationale: "The image itself is sufficient for this comparison.",
+      identity_context_needed: false,
     },
   ],
+  identity_hypotheses: [],
 };
 
 const researchedResult = {
@@ -196,7 +199,20 @@ test("Stage 2 makes zero calls when no candidate passes the research gate", asyn
     },
   } as unknown as Parameters<typeof runSelectiveResearch>[0];
   const result = await runSelectiveResearch(fakeOpenAI, noResearch);
-  assert.deepEqual(result, { results: [], calls: [] });
+  assert.deepEqual(result, {
+    results: [],
+    calls: [],
+    identityVerification: {
+      result: null,
+      metrics: {
+        ran: false,
+        status: "not_run",
+        usage: null,
+        cost_usd: null,
+        cost_reason: null,
+      },
+    },
+  });
 });
 
 test("research result ids and questions must match a Stage 1 candidate", () => {
@@ -268,10 +284,11 @@ test("Discovery lab routing remains distinct from the legacy root", () => {
   assert.equal(isDiscoveryLabPath(DISCOVERY_LAB_PATH), true);
 });
 
-test("Discovery V0 uses a cache identity distinct from legacy analysis", () => {
+test("Discovery V1 uses a cache identity distinct from V0 and legacy analysis", () => {
   const image = "data:image/png;base64,YWJj";
   const discovery = computeDiscoveryCacheKey(image).cacheKey;
   const legacy = computeCacheKey(image).cacheKey;
-  assert.match(discovery, /^discovery-engine-v0:/);
+  assert.match(discovery, /^discovery-engine-v1:/);
+  assert.notEqual(discovery, discovery.replace("v1", "v0"));
   assert.notEqual(discovery, legacy);
 });

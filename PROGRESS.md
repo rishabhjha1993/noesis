@@ -48,7 +48,7 @@ Latest verified on 2026-08-10:
 
 ## Latest Stable Commit
 
-`31f7165` — pre-product-shell repository base (`Add image asset`). The verified deployment and evaluation changes currently exist on top of this commit in the local working tree and require their own focused checkpoint.
+`398ca6a` — Checkpoint 0, persistent Noesis operating contract and progress context. The verified deployment and evaluation changes still exist in the local working tree and require their own focused product checkpoint.
 
 ## Important Decisions
 

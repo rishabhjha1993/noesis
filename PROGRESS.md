@@ -21,7 +21,7 @@ The legacy Noesis experience works as a standalone full-stack Node service. The 
 
 ## Current Milestone
 
-Cost Experiment A is implemented and technically verified as the isolated `discovery-engine-v1-batched-research` variant. Current `discovery-engine-v1` remains the default and fixed non-inferiority baseline. A second cold Chuquicamata batched run still rejected all four candidates, but it was served by a stale backend runtime that omitted the diagnostics added in `86bf1ca`; the exact candidate-validation cause therefore cannot be reconstructed from that result. The next milestone is one controlled batched-only rerun after restarting the rebuilt server and confirming the versioned diagnostics contract in the API response.
+Cost Experiment A is implemented and technically verified as the isolated `discovery-engine-v1-batched-research` variant. Current `discovery-engine-v1` remains the default and fixed non-inferiority baseline. A fully restarted controlled Chuquicamata run reached Stage 3 and then failed strict final source validation, while its failed-job response still omitted the candidate-level batch reasons. Failed-job observability and the proven batched Stage 3 evidence-applicability mismatch are fixed in `ff4ba30`. The next milestone is one final controlled batched-only rerun to capture the real candidate reasons and a judgeable result.
 
 ## Completed
 
@@ -57,11 +57,16 @@ Cost Experiment A is implemented and technically verified as the isolated `disco
 - The second run's actual API result omitted `validation_issues` from both batch inspection and metrics. Current source has no stripping serializer and attaches those fields before returning; the local `pnpm start` command loads the built backend bundle once while the running backend serves rebuilt frontend assets from disk. The observed mixed shape therefore came from a pre-patch backend process serving a newer frontend bundle.
 - End-to-end validation observability and successful-result compatibility were fixed and pushed as `670805a`. Completed batched jobs normalize a versioned safe diagnostics contract before storage, the real status-response builder preserves it through JSON serialization, older invalid results receive an explicit `unknown` safe reason, and `/discovery-lab` treats missing diagnostic arrays as empty instead of throwing.
 - No citation validator rule was changed in `670805a`. Because the stale result retained neither safe failure categories nor raw provider data, the actual validation cause for the second paid run remains unresolved rather than guessed.
+- Fully restarted controlled Chuquicamata run `4bbefc43-c72b-4561-962a-df6491fd0f35` failed after `139.2s` in final validation, after Stage 3 completed. The exact server error was `Researched discovery disc-001 has no applicable validated research sources`.
+- Known controlled-run spend was `$0.31451925`: Stage 1 `$0.078435`, identity verification `$0.05970925`, batched research `$0.16812425`, and Stage 3 `$0.06796`. The failed-job API returned partial metrics but still discarded `validation_diagnostics_version` and `validation_issues`, so the actual candidate-level reason remains unrecoverable from this run.
+- Failed-job batch diagnostics and the Stage 3 evidence contract were fixed and pushed as `ff4ba30`. Batch state now retains safe versioned candidate issues plus attempted, answered, insufficient, invalid, and missing candidate IDs through pipeline failure, in-memory failed-job storage, and `/api/discovery/:id` error serialization.
+- The Stage 3/final-validation mismatch was proven: the batched path labeled all results, including invalid candidates downgraded to `insufficient`, as validated research input and exposed verified identity globally, while final validation accepts only answered candidate sources and identity sources applicable to mapped candidate IDs. Batched Stage 3 now receives only answered research results and an explicit deterministic `applicable_candidate_ids` identity mapping derived from the same rule final validation uses.
+- Strict final source validation and candidate source-validation rules remain unchanged. Baseline V1, models, reasoning levels, research gate, ranking, and cache identities remain unchanged. No paid rerun was made after `ff4ba30`.
 
 ## In Progress
 
 - No implementation work is currently in progress.
-- One same-image Chuquicamata batched-only rerun is pending after a full server restart. Confirm `validation_diagnostics_version: "batched-candidate-validation-v1"` before trusting the result; reuse the existing baseline V1 result rather than rerunning it.
+- One final same-image Chuquicamata batched-only rerun is pending after rebuilding and fully restarting the server. Reuse the existing baseline V1 result rather than rerunning it.
 
 ## Verification
 
@@ -113,10 +118,13 @@ Latest verified on 2026-08-11:
 - Batched diagnostics observability tests: 87/87 total repository tests passed, including 27 focused batched cases and a mocked pipeline → persisted job → real API payload JSON path. Coverage includes exact safe validation reasons, mixed sibling isolation, candidate-local citations, tracked-URL canonicalization, unknown/mismatched/duplicate/missing candidates, legacy missing-diagnostics compatibility, eval safety, cache isolation, and legacy routing.
 - Batched diagnostics observability full build: passed for the API server, Noesis frontend, and mockup sandbox; the existing non-fatal Vite tooltip sourcemap warning remains.
 - Manual mocked API-shape inspection visibly contained `validation_diagnostics_version`, `candidate_id`, `question_id`, `validation_category`, and `safe_message` in both `inspection.research_batch` and `metrics.stage2.batch`. Secret-pattern and staged-diff checks passed. No paid model call was made.
+- Failed-job diagnostics/Stage 3 contract typecheck: passed across all workspace projects.
+- Failed-job diagnostics/Stage 3 contract tests: 92/92 total repository tests passed, including 32 focused batched cases and actual mocked pipeline → failed job → API error JSON serialization. Coverage includes mixed candidate reasons/state, secret and raw-response exclusion, answered-only Stage 3 evidence, explicit identity applicability, strict final source rejection, valid researched output, insufficient-research plus seen-only output, mixed valid/invalid output, baseline V1 behavior, cache identity, and legacy routing.
+- Failed-job diagnostics/Stage 3 contract full build: passed for the API server, Noesis frontend, and mockup sandbox; the existing non-fatal Vite tooltip sourcemap warning remains. No paid model call was made.
 
 ## Latest Stable Commit
 
-`670805a` — versioned end-to-end batched validation diagnostics and legacy-shape UI compatibility.
+`ff4ba30` — failed-job batched diagnostics and aligned Stage 3 evidence applicability.
 
 ## Important Decisions
 
@@ -142,6 +150,7 @@ Latest verified on 2026-08-11:
 - Batched Stage 2 sends only compact deterministic context for candidates that already passed the existing research gate. Missing or invalid individual results degrade only that candidate to `insufficient`; unknown ids, mismatched question ids, duplicate results, or malformed envelopes fail with scoped diagnostics.
 - Batch source validation uses the Responses API citation annotations, including their output-text spans, rather than treating all citations as a global pool. A source can validate only the candidate object containing that citation; known provider `utm_source=chatgpt.com` decoration is normalized without accepting unrelated URLs.
 - Local production backend changes require a process restart: `pnpm start` loads `artifacts/api-server/dist/index.mjs` once, while the same process can serve newly rebuilt frontend assets from disk. The `validation_diagnostics_version` marker must be present before a paid diagnostic rerun is trusted.
+- Batched Stage 3 receives only answered candidate research as validated research evidence. Verified identity includes deterministic `applicable_candidate_ids` computed by the same identity-to-candidate mapping used by final source validation; insufficient/invalid research remains available in inspection and metrics but is not presented as evidence.
 
 ## Known Issues / Risks
 
@@ -158,8 +167,8 @@ Latest verified on 2026-08-11:
 - V1 identity verification is limited to one operation and one verified hypothesis per run; multiple genuinely distinct identities in one image remain outside this first implementation.
 - The three current real-world V1 samples are useful but limited; Minard is memorization-prone, and broader quality judgment remains human-led.
 - Pantheon demonstrated a source-entailment risk: reproduction or use by a modern source does not prove provenance of the underlying visual.
-- Chuquicamata established promising cost/latency evidence for batching, but neither batched run is usable for quality comparison. The second run still rejected all four candidates and its stale backend response omitted the safe failure reasons, so the actual remaining validation failure is unresolved pending one controlled, correctly restarted batched-only run.
+- Chuquicamata established promising cost/latency evidence for batching, but no batched run is yet usable for quality comparison. The fully restarted controlled run failed only after paying for Stage 3, and its error response still omitted the candidate issues. The actual Terra candidate-validation reason remains unresolved pending one final controlled batched-only run with the `ff4ba30` failed-job contract.
 
 ## Next Step
 
-Fully restart the rebuilt local server, confirm a mocked/status response includes `validation_diagnostics_version: "batched-candidate-validation-v1"`, then run `discovery-engine-v1-batched-research` once on the exact same Chuquicamata image. Use that one controlled result to capture the real safe candidate-level failure cause and compare against the already-recorded baseline; do not rerun the baseline or optimize further first.
+Rebuild and fully restart the local server, confirm a mocked failed status includes `validation_diagnostics_version: "batched-candidate-validation-v1"`, `validation_issues`, and `batch_candidate_state`, then run `discovery-engine-v1-batched-research` once on the exact same Chuquicamata image. Capture the full safe success or failed-job API JSON, per-candidate categories/messages and state, Stage 3 outcome, cost, latency, and source applicability; compare with the retained baseline without rerunning it or optimizing further.

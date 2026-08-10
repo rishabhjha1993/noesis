@@ -6,7 +6,7 @@
 
 ## Current Product State
 
-The legacy Noesis experience works as a standalone full-stack Node service. The React upload/result UI, Express API, asynchronous analysis jobs and polling, deterministic evidence computation, OpenAI analysis pipeline, cache support, and evaluation infrastructure are preserved. Platform-independent production serving, minimum public-safety controls, instrumentation, and evaluation infrastructure are checkpointed in Git and deployed. Discovery Engine V0 now exists as a parallel, experimental branch path at `/discovery-lab`; it is committed and pushed but has not been deployed or qualitatively evaluated yet.
+The legacy Noesis experience works as a standalone full-stack Node service. The React upload/result UI, Express API, asynchronous analysis jobs and polling, deterministic evidence computation, OpenAI analysis pipeline, cache support, and evaluation infrastructure are preserved. Platform-independent production serving, minimum public-safety controls, instrumentation, and evaluation infrastructure are checkpointed in Git and deployed. Discovery Engine V0 now exists as a parallel, experimental branch path at `/discovery-lab`; it is committed and pushed but has not been deployed or qualitatively evaluated yet. The lab can copy a complete safe eval JSON projection of a completed run for human review.
 
 ## Live Deployment
 
@@ -36,6 +36,7 @@ Discovery Engine V0 is implemented and technically verified. The next milestone 
 - Parallel `/api/discovery` job path and direct-only `/discovery-lab` evaluation UI.
 - Strict Stage 1, research-gate, research-result, Stage 3, region-reference, candidate-reference, and source-provenance validation.
 - Focused Discovery V0 fixtures and mocked model-call tests requiring no paid API calls.
+- Full eval JSON copy support for completed `/discovery-lab` runs, committed and pushed as `995e1cd`; no Discovery intelligence behavior changed.
 
 ## In Progress
 
@@ -60,10 +61,12 @@ Latest verified on 2026-08-10:
 - Discovery V0 full build: passed for the API server, Noesis frontend, and mockup sandbox; the existing non-fatal Vite sourcemap warning remains.
 - Discovery V0 local runtime: `/`, `/discovery-lab`, built assets, image selection, invalid Discovery requests, missing Discovery jobs, and legacy invalid-request behavior passed; browser console was clean.
 - Discovery V0 paid model call: not run. Model-backed intelligence quality and real web-search output remain intentionally unevaluated until the qualitative eval.
+- Eval JSON copy support: typecheck passed across all workspace projects; 29/29 repository tests passed; full build passed with the existing non-fatal Vite sourcemap warning.
+- Eval JSON local runtime: a mocked fixture completed in `/discovery-lab`, the copy control reached `Copied` only after successful `JSON.parse`, the safe projection excluded reasoning-token counts and internal-only fields, and `/` still rendered the legacy upload UI without browser warnings or errors. No paid model call was made.
 
 ## Latest Stable Commit
 
-`4f15645` — Discovery Engine V0 parallel implementation and technical verification checkpoint.
+`995e1cd` — Discovery V0 full eval JSON copy support and verification checkpoint.
 
 ## Important Decisions
 
@@ -77,6 +80,7 @@ Latest verified on 2026-08-10:
 - All three V0 stages use medium reasoning. Stage 2 receives only Stage 1-approved text questions and never receives the image.
 - Discovery V0 uses the independent `discovery-engine-v0` in-memory cache identity and cannot read or write legacy analysis cache entries.
 - `/discovery-lab` remains outside normal public navigation and does not replace `/`.
+- The copied eval JSON reuses the validated V0 run structure, adds job/cache identity, and omits reasoning-token counts and internal-only fields; it does not alter stage execution or output schemas.
 
 ## Known Issues / Risks
 

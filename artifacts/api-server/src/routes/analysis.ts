@@ -59,6 +59,9 @@ router.post("/analyze", analysisRateLimit, (req, res) => {
 });
 
 router.get("/analyze/:analysisId", (req, res) => {
+  // Must not be cached — the status transitions from pending → done/error.
+  res.setHeader("Cache-Control", "no-store");
+
   const job = getAnalysisJob(req.params.analysisId);
   if (!job) {
     res.status(404).json({ error: "Unknown or expired analysis" });

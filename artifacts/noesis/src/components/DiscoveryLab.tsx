@@ -15,7 +15,10 @@ import {
   type DiscoveryFailureDiagnostic,
   type DiscoveryRunResult,
 } from "@workspace/api-client-react";
-import { serializeDiscoveryEvalPayload } from "../lib/discoveryEval";
+import {
+  getBatchValidationIssues,
+  serializeDiscoveryEvalPayload,
+} from "../lib/discoveryEval";
 
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const POLL_INTERVAL_MS = 2500;
@@ -446,18 +449,16 @@ export function DiscoveryLab() {
                         </strong>{" "}
                         {result.metrics.stage2.batch.candidate_count}
                       </p>
-                      {result.metrics.stage2.batch.validation_issues.map(
-                        (issue) => (
-                          <p
-                            key={`${issue.candidate_id}:${issue.validation_category}`}
-                          >
-                            <strong className="text-foreground">
-                              {issue.candidate_id} validation:
-                            </strong>{" "}
-                            {issue.validation_category} — {issue.safe_message}
-                          </p>
-                        ),
-                      )}
+                      {getBatchValidationIssues(result).map((issue) => (
+                        <p
+                          key={`${issue.candidate_id}:${issue.validation_category}`}
+                        >
+                          <strong className="text-foreground">
+                            {issue.candidate_id} validation:
+                          </strong>{" "}
+                          {issue.validation_category} — {issue.safe_message}
+                        </p>
+                      ))}
                     </>
                   )}
                 </div>

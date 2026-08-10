@@ -1,4 +1,5 @@
 import type { DiscoveryRunResult } from "@workspace/api-client-react";
+import type { DiscoveryBatchValidationIssue } from "@workspace/api-client-react";
 
 const UNSAFE_EVAL_FIELD =
   /(^|_)(api_key|authorization|cookie|environment|env|headers|password|private_key|raw_usage|request|secret|stack|stack_trace)(_|$)/i;
@@ -7,6 +8,15 @@ export interface DiscoveryEvalContext {
   result: DiscoveryRunResult;
   discoveryId: string;
   cacheHit: boolean;
+}
+
+export function getBatchValidationIssues(
+  result: DiscoveryRunResult,
+): DiscoveryBatchValidationIssue[] {
+  const metricIssues = result.metrics.stage2.batch?.validation_issues;
+  if (Array.isArray(metricIssues)) return metricIssues;
+  const inspectionIssues = result.inspection.research_batch?.validation_issues;
+  return Array.isArray(inspectionIssues) ? inspectionIssues : [];
 }
 
 export function findUnsafeEvalFieldPaths(value: unknown): string[] {

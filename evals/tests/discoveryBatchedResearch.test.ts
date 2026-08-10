@@ -19,7 +19,16 @@ import {
   runDiscoveryPipeline,
 } from "../../artifacts/api-server/src/lib/discoveryPipeline";
 import { computeDiscoveryCacheKey } from "../../artifacts/api-server/src/lib/discoveryCache";
-import { createDiscoveryEvalPayload } from "../../artifacts/noesis/src/lib/discoveryEval";
+import {
+  DISCOVERY_VALIDATION_DIAGNOSTICS_VERSION,
+  normalizeDiscoveryValidationDiagnostics,
+} from "../../artifacts/api-server/src/lib/discoveryDiagnostics";
+import { createDiscoveryDoneJob } from "../../artifacts/api-server/src/lib/discoveryJobs";
+import { createDiscoveryStatusPayload } from "../../artifacts/api-server/src/routes/discovery";
+import {
+  createDiscoveryEvalPayload,
+  getBatchValidationIssues,
+} from "../../artifacts/noesis/src/lib/discoveryEval";
 import {
   DISCOVERY_LAB_PATH,
   LEGACY_APP_PATH,
@@ -548,6 +557,43 @@ test("one malformed sibling does not invalidate valid siblings", () => {
   ]);
 });
 
+test("mixed batch preserves valid answered and insufficient siblings around an invalid source", () => {
+  const thirdCandidate: DiscoveryCandidate = {
+    ...stage1Fixture.candidates[2]!,
+    research_needed: true,
+  };
+  const candidates = [...gatedCandidates, thirdCandidate];
+  const stage1 = { ...stage1Fixture, candidates };
+  const input = {
+    results: [
+      batchResult(candidates[0]!, "answered"),
+      batchResult(candidates[1]!, "answered"),
+      batchResult(candidates[2]!, "insufficient"),
+    ],
+  };
+  const validated = validateDiscoveryBatchResults(
+    stage1,
+    candidates,
+    input,
+    citationContext(input, [{ title: "C1", url: "https://example.com/c1" }]),
+  );
+
+  assert.deepEqual(
+    validated.results.map((result) => result.status),
+    ["answered", "insufficient", "insufficient"],
+  );
+  assert.deepEqual(validated.invalid_candidate_ids, ["c2"]);
+  assert.deepEqual(validated.validation_issues, [
+    {
+      candidate_id: "c2",
+      question_id: "q2",
+      validation_category: "source_validation",
+      safe_message:
+        "A claimed source was not cited within this candidate result.",
+    },
+  ]);
+});
+
 test("candidate sources remain scoped and are never globally attached", () => {
   const input = {
     results: [
@@ -863,6 +909,67 @@ test("safe per-candidate validation reasons survive eval serialization", async (
     JSON.stringify(payload),
     /reasoning_tokens|api[_-]?key|authorization|stack|raw_response/i,
   );
+
+  const persistedJob = createDiscoveryDoneJob(result, false);
+  const apiPayload = JSON.parse(
+    JSON.stringify(createDiscoveryStatusPayload(persistedJob)),
+  ) as ReturnType<typeof createDiscoveryStatusPayload>;
+  assert.equal(apiPayload.status, "done");
+  if (apiPayload.status !== "done") assert.fail("Expected a done payload");
+  assert.equal(
+    apiPayload.result.inspection.research_batch?.validation_diagnostics_version,
+    DISCOVERY_VALIDATION_DIAGNOSTICS_VERSION,
+  );
+  assert.deepEqual(
+    apiPayload.result.inspection.research_batch?.validation_issues,
+    payload.inspection.research_batch?.validation_issues,
+  );
+  assert.deepEqual(
+    apiPayload.result.metrics.stage2.batch?.validation_issues,
+    payload.inspection.research_batch?.validation_issues,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(apiPayload),
+    /api[_-]?key|authorization|stack|raw_response|hidden_reasoning/i,
+  );
+});
+
+test("legacy successful batch results are normalized and cannot crash validation rendering", async () => {
+  const result = await runDiscoveryPipeline(
+    fakeBatchedClient({
+      batchOutput: {
+        results: [
+          batchResult(gatedCandidates[0]!),
+          { ...batchResult(gatedCandidates[1]!), unexpected: "field" },
+        ],
+      },
+    }),
+    "data:image/png;base64,YWJj",
+    { variant: "v1-batched-research" },
+  );
+  const legacyResult = structuredClone(result);
+  delete (
+    legacyResult.inspection.research_batch as unknown as {
+      validation_issues?: unknown;
+    }
+  ).validation_issues;
+  delete (
+    legacyResult.metrics.stage2.batch as unknown as {
+      validation_issues?: unknown;
+    }
+  ).validation_issues;
+
+  assert.deepEqual(getBatchValidationIssues(legacyResult), []);
+  const normalized = normalizeDiscoveryValidationDiagnostics(legacyResult);
+  assert.deepEqual(getBatchValidationIssues(normalized), [
+    {
+      candidate_id: "c2",
+      question_id: "q2",
+      validation_category: "unknown",
+      safe_message:
+        "The stored result marked this candidate invalid but did not record a candidate-level validation reason.",
+    },
+  ]);
 });
 
 test("legacy root and Discovery lab routes remain distinct", () => {

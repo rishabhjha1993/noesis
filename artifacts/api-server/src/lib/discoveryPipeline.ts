@@ -154,6 +154,7 @@ export interface DiscoveryIdentityVerificationMetrics {
 }
 
 export interface DiscoveryBatchResearchMetrics extends DiscoveryStageMetrics {
+  validation_diagnostics_version?: string;
   candidate_count: number;
   candidate_ids: string[];
   question_ids: string[];
@@ -165,6 +166,7 @@ export interface DiscoveryBatchResearchMetrics extends DiscoveryStageMetrics {
 }
 
 export interface DiscoveryBatchInspection {
+  validation_diagnostics_version?: string;
   candidates: DiscoveryBatchCandidateContext[];
   identity_context_mappings: DiscoveryBatchIdentityMapping[];
   invalid_candidate_ids: string[];

@@ -156,6 +156,7 @@ export interface DiscoveryBatchCandidateContext {
 }
 
 export interface DiscoveryBatchResearchMetrics extends DiscoveryStageMetrics {
+  validation_diagnostics_version?: string;
   candidate_count: number;
   candidate_ids: string[];
   question_ids: string[];
@@ -163,7 +164,7 @@ export interface DiscoveryBatchResearchMetrics extends DiscoveryStageMetrics {
   missing_candidate_ids: string[];
   answered_candidates: number;
   insufficient_candidates: number;
-  validation_issues: DiscoveryBatchValidationIssue[];
+  validation_issues?: DiscoveryBatchValidationIssue[];
 }
 
 export interface DiscoveryBatchValidationIssue {
@@ -196,11 +197,12 @@ export interface DiscoveryRunResult {
     research_results: DiscoveryResearchResult[];
     discovery_candidates: Record<string, string[]>;
     research_batch?: {
+      validation_diagnostics_version?: string;
       candidates: DiscoveryBatchCandidateContext[];
       identity_context_mappings: DiscoveryBatchIdentityMapping[];
       invalid_candidate_ids: string[];
       missing_candidate_ids: string[];
-      validation_issues: DiscoveryBatchValidationIssue[];
+      validation_issues?: DiscoveryBatchValidationIssue[];
     };
   };
   metrics: {

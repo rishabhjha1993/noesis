@@ -15,6 +15,7 @@ import {
   type DiscoveryPipelineResult,
 } from "./discoveryPipeline";
 import { logger } from "./logger";
+import { normalizeDiscoveryValidationDiagnostics } from "./discoveryDiagnostics";
 
 export type DiscoveryJob =
   | { status: "pending"; createdAt: number }
@@ -87,6 +88,18 @@ export function createDiscoveryErrorJob(
   };
 }
 
+export function createDiscoveryDoneJob(
+  result: DiscoveryPipelineResult,
+  cacheHit: boolean,
+): Extract<DiscoveryJob, { status: "done" }> {
+  return {
+    status: "done",
+    createdAt: Date.now(),
+    result: normalizeDiscoveryValidationDiagnostics(result),
+    cacheHit,
+  };
+}
+
 function sweep(): void {
   const now = Date.now();
   for (const [id, job] of jobs) {
@@ -142,12 +155,7 @@ export function startDiscoveryJob(
   })
     .then(({ result, cacheHit }) => {
       if (!jobs.has(discoveryId)) return;
-      jobs.set(discoveryId, {
-        status: "done",
-        createdAt: Date.now(),
-        result,
-        cacheHit,
-      });
+      jobs.set(discoveryId, createDiscoveryDoneJob(result, cacheHit));
       logger.info(
         { discovery_id: discoveryId, cache_hit: cacheHit, success: true },
         "[Noesis Discovery] job completed",

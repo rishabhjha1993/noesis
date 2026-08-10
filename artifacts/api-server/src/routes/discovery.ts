@@ -1,6 +1,10 @@
 import { Router, type IRouter } from "express";
 import { AnalyzeImageBody } from "@workspace/api-zod";
-import { getDiscoveryJob, startDiscoveryJob } from "../lib/discoveryJobs";
+import {
+  getDiscoveryJob,
+  startDiscoveryJob,
+  type DiscoveryJob,
+} from "../lib/discoveryJobs";
 import type { DiscoveryEngineVariant } from "../lib/discoveryPipeline";
 import {
   analysisRateLimit,
@@ -9,6 +13,22 @@ import {
 } from "../lib/requestSafety";
 
 const router: IRouter = Router();
+
+export function createDiscoveryStatusPayload(job: DiscoveryJob) {
+  if (job.status === "pending") return { status: "pending" as const };
+  if (job.status === "done") {
+    return {
+      status: "done" as const,
+      result: job.result,
+      cache_hit: job.cacheHit,
+    };
+  }
+  return {
+    status: "error" as const,
+    error: job.error,
+    diagnostic: job.diagnostic,
+  };
+}
 
 router.post("/discovery", analysisRateLimit, (req, res) => {
   const parsedBody = AnalyzeImageBody.safeParse(req.body);
@@ -71,18 +91,10 @@ router.get("/discovery/:discoveryId", (req, res) => {
     res.status(404).json({ error: "Unknown or expired discovery run" });
     return;
   }
-  if (job.status === "pending") {
-    res.json({ status: "pending" });
-  } else if (job.status === "done") {
+  if (job.status === "done") {
     res.setHeader("X-Noesis-Discovery-Cache", job.cacheHit ? "HIT" : "MISS");
-    res.json({ status: "done", result: job.result, cache_hit: job.cacheHit });
-  } else {
-    res.json({
-      status: "error",
-      error: job.error,
-      diagnostic: job.diagnostic,
-    });
   }
+  res.json(createDiscoveryStatusPayload(job));
 });
 
 export default router;

@@ -65,7 +65,11 @@ router.get("/discovery/:discoveryId", (req, res) => {
     res.setHeader("X-Noesis-Discovery-Cache", job.cacheHit ? "HIT" : "MISS");
     res.json({ status: "done", result: job.result, cache_hit: job.cacheHit });
   } else {
-    res.json({ status: "error", error: job.error });
+    res.json({
+      status: "error",
+      error: job.error,
+      diagnostic: job.diagnostic,
+    });
   }
 });
 

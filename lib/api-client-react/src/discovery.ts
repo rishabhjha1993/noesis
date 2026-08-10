@@ -168,10 +168,83 @@ export interface DiscoveryRunResult {
   };
 }
 
+export type DiscoveryFailureStage =
+  | "stage1"
+  | "identity_verification"
+  | "research"
+  | "stage3"
+  | "validation"
+  | "unknown";
+
+export interface DiscoverySafeUsageMetrics {
+  model: string;
+  reasoning_effort: string;
+  input_tokens: number | null;
+  cached_input_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
+  latency_ms: number;
+}
+
+export interface DiscoverySafeStageMetrics {
+  usage: DiscoverySafeUsageMetrics;
+  cost_usd: number | null;
+  cost_reason: string | null;
+}
+
+export interface DiscoveryFailureDiagnostic {
+  engine_version: string;
+  failed_stage: DiscoveryFailureStage;
+  stage_reached: DiscoveryFailureStage;
+  last_completed_stage:
+    "none" | "stage1" | "identity_verification" | "research" | "stage3";
+  category:
+    | "api_error"
+    | "timeout"
+    | "schema_validation"
+    | "malformed_model_output"
+    | "source_validation"
+    | "network_error"
+    | "internal_error"
+    | "unknown";
+  message: string;
+  elapsed_ms: number;
+  candidate_id?: string;
+  question_id?: string;
+  partial_metrics: {
+    stage1: DiscoverySafeStageMetrics | null;
+    identity_verification:
+      | (DiscoverySafeStageMetrics & {
+          completed: boolean;
+          status: "verified" | "unverified" | "conflicted" | null;
+        })
+      | null;
+    research: {
+      attempted_calls: number;
+      completed_calls: Array<
+        DiscoverySafeStageMetrics & {
+          candidate_id: string;
+          question_id: string;
+          status: "answered" | "insufficient";
+        }
+      >;
+      known_usage: DiscoverySafeUsageMetrics | null;
+      known_cost_usd: number | null;
+    };
+    stage3: DiscoverySafeStageMetrics | null;
+    known_total_tokens: number | null;
+    known_total_cost_usd: number | null;
+  };
+}
+
 export type DiscoveryJobStatus =
   | { status: "pending" }
   | { status: "done"; result: DiscoveryRunResult; cache_hit: boolean }
-  | { status: "error"; error?: string };
+  | {
+      status: "error";
+      error?: string;
+      diagnostic?: DiscoveryFailureDiagnostic;
+    };
 
 export async function startDiscovery(imageDataUrl: string): Promise<string> {
   const result = await customFetch<{ discovery_id: string }>("/api/discovery", {

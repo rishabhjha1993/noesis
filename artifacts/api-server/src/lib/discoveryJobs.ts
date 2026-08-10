@@ -5,7 +5,10 @@ import {
   getOrComputeDiscovery,
 } from "./discoveryCache";
 import {
+  createUnknownDiscoveryFailureDiagnostic,
+  getDiscoveryFailureDiagnostic,
   runDiscoveryPipeline,
+  type DiscoveryFailureDiagnostic,
   type DiscoveryPipelineResult,
 } from "./discoveryPipeline";
 import { logger } from "./logger";
@@ -18,11 +21,67 @@ export type DiscoveryJob =
       result: DiscoveryPipelineResult;
       cacheHit: boolean;
     }
-  | { status: "error"; createdAt: number; error: string };
+  | {
+      status: "error";
+      createdAt: number;
+      error: string;
+      diagnostic: DiscoveryFailureDiagnostic;
+    };
 
 const jobs = new Map<string, DiscoveryJob>();
 const JOB_TTL_MS = 30 * 60 * 1000;
 const MAX_CONCURRENT_DISCOVERY_JOBS = 2;
+
+function sanitizeLogText(value: string): string {
+  return value
+    .replace(
+      /data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+/gi,
+      "[image omitted]",
+    )
+    .replace(/\bsk-[a-z0-9_-]+\b/gi, "[secret omitted]")
+    .replace(
+      /((?:openai_)?api[_-]?key\s*[:=]\s*["']?)[^\s,"';}]+/gi,
+      "$1[secret omitted]",
+    )
+    .replace(
+      /(authorization\s*[:=]\s*bearer\s+)[^\s,;]+/gi,
+      "$1[secret omitted]",
+    )
+    .slice(0, 8_000);
+}
+
+export function discoveryErrorLogDetails(error: unknown): {
+  name: string;
+  message: string;
+  stack?: string;
+} {
+  const underlying =
+    error instanceof Error && error.cause instanceof Error
+      ? error.cause
+      : error;
+  if (!(underlying instanceof Error)) {
+    return { name: "UnknownError", message: "Non-Error failure value" };
+  }
+  return {
+    name: underlying.name,
+    message: sanitizeLogText(underlying.message).slice(0, 2_000),
+    ...(underlying.stack ? { stack: sanitizeLogText(underlying.stack) } : {}),
+  };
+}
+
+export function createDiscoveryErrorJob(
+  error: unknown,
+  startedAt: number,
+): Extract<DiscoveryJob, { status: "error" }> {
+  return {
+    status: "error",
+    createdAt: Date.now(),
+    error: "Discovery failed. Please try again or choose another image.",
+    diagnostic:
+      getDiscoveryFailureDiagnostic(error) ??
+      createUnknownDiscoveryFailureDiagnostic(error, startedAt),
+  };
+}
 
 function sweep(): void {
   const now = Date.now();
@@ -47,7 +106,8 @@ export function startDiscoveryJob(
   if (pendingCount() >= MAX_CONCURRENT_DISCOVERY_JOBS) return { busy: true };
 
   const discoveryId = randomUUID();
-  jobs.set(discoveryId, { status: "pending", createdAt: Date.now() });
+  const jobStartedAt = Date.now();
+  jobs.set(discoveryId, { status: "pending", createdAt: jobStartedAt });
   const { cacheKey, imageHash } = computeDiscoveryCacheKey(imageDataUrl);
   const cacheIdentifier = imageHash.slice(0, 12);
   const openai = new OpenAI({ apiKey });
@@ -83,16 +143,18 @@ export function startDiscoveryJob(
       );
     })
     .catch((error: unknown) => {
+      const failedJob = createDiscoveryErrorJob(error, jobStartedAt);
       logger.error(
-        { error, discovery_id: discoveryId, success: false },
+        {
+          discovery_id: discoveryId,
+          success: false,
+          failure: failedJob.diagnostic,
+          error_detail: discoveryErrorLogDetails(error),
+        },
         "[Noesis Discovery] job failed",
       );
       if (!jobs.has(discoveryId)) return;
-      jobs.set(discoveryId, {
-        status: "error",
-        createdAt: Date.now(),
-        error: "Discovery failed. Please try again or choose another image.",
-      });
+      jobs.set(discoveryId, failedJob);
     });
 
   return { discoveryId };

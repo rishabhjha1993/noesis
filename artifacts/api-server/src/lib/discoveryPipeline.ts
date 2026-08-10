@@ -149,6 +149,110 @@ export interface DiscoveryPipelineResult {
   metrics: DiscoveryPipelineMetrics;
 }
 
+export type DiscoveryFailureStage =
+  | "stage1"
+  | "identity_verification"
+  | "research"
+  | "stage3"
+  | "validation"
+  | "unknown";
+
+export type DiscoveryFailureCategory =
+  | "api_error"
+  | "timeout"
+  | "schema_validation"
+  | "malformed_model_output"
+  | "source_validation"
+  | "network_error"
+  | "internal_error"
+  | "unknown";
+
+export interface DiscoverySafeUsageMetrics {
+  model: string;
+  reasoning_effort: string;
+  input_tokens: number | null;
+  cached_input_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
+  latency_ms: number;
+}
+
+export interface DiscoverySafeStageMetrics {
+  usage: DiscoverySafeUsageMetrics;
+  cost_usd: number | null;
+  cost_reason: string | null;
+}
+
+export interface DiscoveryCompletedResearchCallMetrics extends DiscoverySafeStageMetrics {
+  candidate_id: string;
+  question_id: string;
+  status: "answered" | "insufficient";
+}
+
+export interface DiscoveryFailureDiagnostic {
+  engine_version: string;
+  failed_stage: DiscoveryFailureStage;
+  stage_reached: DiscoveryFailureStage;
+  last_completed_stage:
+    "none" | "stage1" | "identity_verification" | "research" | "stage3";
+  category: DiscoveryFailureCategory;
+  message: string;
+  elapsed_ms: number;
+  candidate_id?: string;
+  question_id?: string;
+  partial_metrics: {
+    stage1: DiscoverySafeStageMetrics | null;
+    identity_verification:
+      | (DiscoverySafeStageMetrics & {
+          completed: boolean;
+          status: "verified" | "unverified" | "conflicted" | null;
+        })
+      | null;
+    research: {
+      attempted_calls: number;
+      completed_calls: DiscoveryCompletedResearchCallMetrics[];
+      known_usage: DiscoverySafeUsageMetrics | null;
+      known_cost_usd: number | null;
+    };
+    stage3: DiscoverySafeStageMetrics | null;
+    known_total_tokens: number | null;
+    known_total_cost_usd: number | null;
+  };
+}
+
+interface DiscoveryExecutionState {
+  startedAt: number;
+  stageReached: DiscoveryFailureStage;
+  lastCompletedStage: DiscoveryFailureDiagnostic["last_completed_stage"];
+  currentCandidateId?: string;
+  currentQuestionId?: string;
+  stage1: DiscoveryStageMetrics | null;
+  identityVerification:
+    | (DiscoveryStageMetrics & {
+        completed: boolean;
+        status: "verified" | "unverified" | "conflicted" | null;
+      })
+    | null;
+  knownStage2Metrics: DiscoveryStageMetrics[];
+  researchCalls: DiscoveryResearchCallMetrics[];
+  attemptedResearchCalls: number;
+  stage3: DiscoveryStageMetrics | null;
+}
+
+function createExecutionState(startedAt = Date.now()): DiscoveryExecutionState {
+  return {
+    startedAt,
+    stageReached: "unknown",
+    lastCompletedStage: "none",
+    stage1: null,
+    identityVerification: null,
+    knownStage2Metrics: [],
+    researchCalls: [],
+    attemptedResearchCalls: 0,
+    stage3: null,
+  };
+}
+
 function integer(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
@@ -238,6 +342,208 @@ function stageMetrics(usage: DiscoveryUsageMetrics): DiscoveryStageMetrics {
   return { usage, cost_usd: cost.usd, cost_reason: cost.reason };
 }
 
+function safeUsage(usage: DiscoveryUsageMetrics): DiscoverySafeUsageMetrics {
+  return {
+    model: usage.model,
+    reasoning_effort: usage.reasoning_effort,
+    input_tokens: usage.input_tokens,
+    cached_input_tokens: usage.cached_input_tokens,
+    output_tokens: usage.output_tokens,
+    total_tokens: usage.total_tokens,
+    latency_ms: usage.latency_ms,
+  };
+}
+
+function safeStage(metrics: DiscoveryStageMetrics): DiscoverySafeStageMetrics {
+  return {
+    usage: safeUsage(metrics.usage),
+    cost_usd: metrics.cost_usd,
+    cost_reason: metrics.cost_reason,
+  };
+}
+
+function sumKnown(values: Array<number | null>): number | null {
+  const known = values.filter((value): value is number => value !== null);
+  return known.length === 0
+    ? null
+    : known.reduce((sum, value) => sum + value, 0);
+}
+
+function errorDetails(error: unknown): {
+  name: string;
+  message: string;
+  status: number | null;
+  code: string;
+} {
+  if (!(error instanceof Error)) {
+    return { name: "", message: "", status: null, code: "" };
+  }
+  const record = error as Error & {
+    status?: unknown;
+    code?: unknown;
+    cause?: { code?: unknown };
+  };
+  return {
+    name: error.name,
+    message: error.message,
+    status: integer(record.status),
+    code:
+      typeof record.code === "string"
+        ? record.code
+        : typeof record.cause?.code === "string"
+          ? record.cause.code
+          : "",
+  };
+}
+
+export function classifyDiscoveryFailure(
+  error: unknown,
+): DiscoveryFailureCategory {
+  const { name, message, status, code } = errorDetails(error);
+  const searchable = `${name} ${message} ${code}`.toLowerCase();
+  if (
+    status === 408 ||
+    status === 504 ||
+    /timeout|timed out|aborterror|etimedout/.test(searchable)
+  ) {
+    return "timeout";
+  }
+  if (
+    /econnreset|econnrefused|enotfound|eai_again|fetch failed|network/.test(
+      searchable,
+    )
+  ) {
+    return "network_error";
+  }
+  if (error instanceof SyntaxError) return "malformed_model_output";
+  if (
+    /source|citation|unsafe url|invalid url|url safety/.test(
+      message.toLowerCase(),
+    )
+  ) {
+    return "source_validation";
+  }
+  if (name === "ZodError" || /schema|validation/.test(searchable)) {
+    return "schema_validation";
+  }
+  if (status !== null || /apierror|api error/.test(searchable)) {
+    return "api_error";
+  }
+  if (error instanceof Error) return "internal_error";
+  return "unknown";
+}
+
+function safeFailureMessage(category: DiscoveryFailureCategory): string {
+  switch (category) {
+    case "api_error":
+      return "The model service returned an API error.";
+    case "timeout":
+      return "The model service request timed out.";
+    case "schema_validation":
+      return "A model response failed structured validation.";
+    case "malformed_model_output":
+      return "A model response was not valid structured JSON.";
+    case "source_validation":
+      return "A model response failed source validation.";
+    case "network_error":
+      return "A network request failed.";
+    case "internal_error":
+      return "Discovery encountered an internal error.";
+    default:
+      return "Discovery failed for an unknown reason.";
+  }
+}
+
+function createFailureDiagnostic(
+  error: unknown,
+  state: DiscoveryExecutionState,
+): DiscoveryFailureDiagnostic {
+  const category = classifyDiscoveryFailure(error);
+  const completedResearchCalls = state.researchCalls.map((call) => ({
+    candidate_id: call.candidate_id,
+    question_id: call.question_id,
+    status: call.status,
+    ...safeStage(call),
+  }));
+  const knownStage2Usage =
+    state.knownStage2Metrics.length > 0
+      ? aggregateUsage(
+          DISCOVERY_STAGE2_MODEL,
+          state.knownStage2Metrics.map((metrics) => metrics.usage),
+        )
+      : null;
+  const knownMetrics = [
+    state.stage1,
+    ...state.knownStage2Metrics,
+    state.stage3,
+  ].filter((metrics): metrics is DiscoveryStageMetrics => metrics !== null);
+
+  return {
+    engine_version: DISCOVERY_ENGINE_VERSION,
+    failed_stage: state.stageReached,
+    stage_reached: state.stageReached,
+    last_completed_stage: state.lastCompletedStage,
+    category,
+    message: safeFailureMessage(category),
+    elapsed_ms: Math.max(0, Date.now() - state.startedAt),
+    ...(state.currentCandidateId
+      ? { candidate_id: state.currentCandidateId }
+      : {}),
+    ...(state.currentQuestionId
+      ? { question_id: state.currentQuestionId }
+      : {}),
+    partial_metrics: {
+      stage1: state.stage1 ? safeStage(state.stage1) : null,
+      identity_verification: state.identityVerification
+        ? {
+            ...safeStage(state.identityVerification),
+            completed: state.identityVerification.completed,
+            status: state.identityVerification.status,
+          }
+        : null,
+      research: {
+        attempted_calls: state.attemptedResearchCalls,
+        completed_calls: completedResearchCalls,
+        known_usage: knownStage2Usage ? safeUsage(knownStage2Usage) : null,
+        known_cost_usd: sumKnown(
+          state.knownStage2Metrics.map((metrics) => metrics.cost_usd),
+        ),
+      },
+      stage3: state.stage3 ? safeStage(state.stage3) : null,
+      known_total_tokens: sumKnown(
+        knownMetrics.map((metrics) => metrics.usage.total_tokens),
+      ),
+      known_total_cost_usd: sumKnown(
+        knownMetrics.map((metrics) => metrics.cost_usd),
+      ),
+    },
+  };
+}
+
+export class DiscoveryPipelineError extends Error {
+  readonly diagnostic: DiscoveryFailureDiagnostic;
+
+  constructor(error: unknown, state: DiscoveryExecutionState) {
+    const diagnostic = createFailureDiagnostic(error, state);
+    super(diagnostic.message, { cause: error });
+    this.name = "DiscoveryPipelineError";
+    this.diagnostic = diagnostic;
+  }
+}
+
+export function getDiscoveryFailureDiagnostic(
+  error: unknown,
+): DiscoveryFailureDiagnostic | null {
+  return error instanceof DiscoveryPipelineError ? error.diagnostic : null;
+}
+
+export function createUnknownDiscoveryFailureDiagnostic(
+  error: unknown,
+  startedAt: number,
+): DiscoveryFailureDiagnostic {
+  return createFailureDiagnostic(error, createExecutionState(startedAt));
+}
+
 function extractValidatedSources(response: Response): DiscoverySource[] {
   const sources = new Map<string, DiscoverySource>();
   for (const item of response.output) {
@@ -299,6 +605,7 @@ async function runIdentityVerification(
   openai: OpenAI,
   stage1: DiscoveryStage1,
   gatedQuestionIds: Set<string>,
+  state: DiscoveryExecutionState,
 ): Promise<DiscoveryIdentityVerificationExecution> {
   const identityQuestionIds = new Set(
     stage1.candidates
@@ -329,6 +636,9 @@ async function runIdentityVerification(
   const relevantRegionIds = new Set(
     hypotheses.flatMap((hypothesis) => hypothesis.region_ids),
   );
+  state.stageReached = "identity_verification";
+  state.currentCandidateId = undefined;
+  state.currentQuestionId = undefined;
   const started = Date.now();
   const response = await openai.responses.create({
     model: DISCOVERY_STAGE2_MODEL,
@@ -365,11 +675,23 @@ async function runIdentityVerification(
   });
   const usage = normalizeResponseUsage(response, Date.now() - started);
   const metrics = stageMetrics(usage);
+  state.knownStage2Metrics.push(metrics);
+  state.identityVerification = {
+    ...metrics,
+    completed: false,
+    status: null,
+  };
   const result = validateIdentityVerification(
     stage1,
     JSON.parse(response.output_text),
     extractValidatedSources(response),
   );
+  state.identityVerification = {
+    ...metrics,
+    completed: true,
+    status: result.status,
+  };
+  state.lastCompletedStage = "identity_verification";
   return {
     result,
     metrics: {
@@ -380,9 +702,10 @@ async function runIdentityVerification(
   };
 }
 
-export async function runSelectiveResearch(
+async function runSelectiveResearchWithState(
   openai: OpenAI,
   stage1: DiscoveryStage1,
+  state: DiscoveryExecutionState,
 ): Promise<{
   results: DiscoveryResearchResult[];
   calls: DiscoveryResearchCallMetrics[];
@@ -400,6 +723,7 @@ export async function runSelectiveResearch(
     openai,
     stage1,
     gatedQuestionIds,
+    state,
   );
   const verifiedHypothesis =
     identityVerification.result?.status === "verified"
@@ -409,7 +733,11 @@ export async function runSelectiveResearch(
         )
       : undefined;
 
+  state.stageReached = "research";
   for (const candidate of gatedCandidates) {
+    state.currentCandidateId = candidate.id;
+    state.currentQuestionId = candidate.question_id;
+    state.attemptedResearchCalls += 1;
     const usedVerifiedIdentityContext = Boolean(
       candidate.identity_context_needed &&
       verifiedHypothesis?.verification_would_help &&
@@ -454,6 +782,8 @@ export async function runSelectiveResearch(
       ].join("\n"),
     });
     const usage = normalizeResponseUsage(response, Date.now() - started);
+    const metrics = stageMetrics(usage);
+    state.knownStage2Metrics.push(metrics);
     const sources = extractValidatedSources(response);
     const cleaned = cleanResearchFinding(response.output_text);
     const status =
@@ -469,29 +799,48 @@ export async function runSelectiveResearch(
       sources,
     };
     rawResults.push(result);
-    calls.push({
+    const call = {
       candidate_id: candidate.id,
       question_id: candidate.question_id,
       status,
       used_verified_identity_context: usedVerifiedIdentityContext,
-      ...stageMetrics(usage),
-    });
+      ...metrics,
+    } satisfies DiscoveryResearchCallMetrics;
+    calls.push(call);
+    state.researchCalls.push(call);
   }
 
+  const results = validateResearchResults(stage1, rawResults);
+  state.currentCandidateId = undefined;
+  state.currentQuestionId = undefined;
+  state.lastCompletedStage = "research";
   return {
-    results: validateResearchResults(stage1, rawResults),
+    results,
     calls,
     identityVerification,
   };
 }
 
-export async function runDiscoveryPipeline(
+export async function runSelectiveResearch(
+  openai: OpenAI,
+  stage1: DiscoveryStage1,
+): ReturnType<typeof runSelectiveResearchWithState> {
+  const state = createExecutionState();
+  try {
+    return await runSelectiveResearchWithState(openai, stage1, state);
+  } catch (error) {
+    throw new DiscoveryPipelineError(error, state);
+  }
+}
+
+async function runDiscoveryPipelineWithState(
   openai: OpenAI,
   imageDataUrl: string,
+  pipelineStarted: number,
+  timestamp: string,
+  state: DiscoveryExecutionState,
 ): Promise<DiscoveryPipelineResult> {
-  const pipelineStarted = Date.now();
-  const timestamp = new Date().toISOString();
-
+  state.stageReached = "stage1";
   const stage1Started = Date.now();
   const stage1Response = await openai.chat.completions.create({
     model: DISCOVERY_STAGE1_MODEL,
@@ -526,12 +875,15 @@ export async function runDiscoveryPipeline(
     stage1Response,
     Date.now() - stage1Started,
   );
+  const stage1Metrics = stageMetrics(stage1Usage);
+  state.stage1 = stage1Metrics;
   const stage1Text = stage1Response.choices[0]?.message.content;
   if (!stage1Text)
     throw new Error("Discovery Stage 1 returned an empty response");
   const stage1 = DiscoveryStage1Schema.parse(JSON.parse(stage1Text));
+  state.lastCompletedStage = "stage1";
 
-  const research = await runSelectiveResearch(openai, stage1);
+  const research = await runSelectiveResearchWithState(openai, stage1, state);
   const stage2Usages = research.calls.map((call) => call.usage);
   if (research.identityVerification.metrics.usage) {
     stage2Usages.unshift(research.identityVerification.metrics.usage);
@@ -543,6 +895,7 @@ export async function runDiscoveryPipeline(
   }
   const stage2Cost = sumNullable(stage2Costs);
 
+  state.stageReached = "stage3";
   const stage3Started = Date.now();
   const stage3IdentityContext =
     research.identityVerification.result?.status === "verified"
@@ -597,18 +950,21 @@ export async function runDiscoveryPipeline(
     stage3Response,
     Date.now() - stage3Started,
   );
+  const stage3Metrics = stageMetrics(stage3Usage);
+  state.stage3 = stage3Metrics;
   const stage3Text = stage3Response.choices[0]?.message.content;
   if (!stage3Text)
     throw new Error("Discovery Stage 3 returned an empty response");
+  const parsedStage3 = JSON.parse(stage3Text);
+  state.lastCompletedStage = "stage3";
+  state.stageReached = "validation";
   const validated = validateDiscoveryOutput(
     stage1,
     research.results,
-    JSON.parse(stage3Text),
+    parsedStage3,
     research.identityVerification.result,
   );
 
-  const stage1Metrics = stageMetrics(stage1Usage);
-  const stage3Metrics = stageMetrics(stage3Usage);
   const totalCost = sumNullable([
     stage1Metrics.cost_usd,
     stage2Cost,
@@ -654,4 +1010,26 @@ export async function runDiscoveryPipeline(
       final_discoveries: validated.discoveries.length,
     },
   };
+}
+
+export async function runDiscoveryPipeline(
+  openai: OpenAI,
+  imageDataUrl: string,
+): Promise<DiscoveryPipelineResult> {
+  const pipelineStarted = Date.now();
+  const timestamp = new Date().toISOString();
+  const state = createExecutionState(pipelineStarted);
+
+  try {
+    return await runDiscoveryPipelineWithState(
+      openai,
+      imageDataUrl,
+      pipelineStarted,
+      timestamp,
+      state,
+    );
+  } catch (error) {
+    if (error instanceof DiscoveryPipelineError) throw error;
+    throw new DiscoveryPipelineError(error, state);
+  }
 }

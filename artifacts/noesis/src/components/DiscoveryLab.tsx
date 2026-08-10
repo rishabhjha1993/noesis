@@ -11,6 +11,7 @@ import {
   getDiscoveryStatus,
   startDiscovery,
   type Discovery,
+  type DiscoveryFailureDiagnostic,
   type DiscoveryRunResult,
 } from "@workspace/api-client-react";
 import { serializeDiscoveryEvalPayload } from "../lib/discoveryEval";
@@ -116,6 +117,8 @@ export function DiscoveryLab() {
     "upload",
   );
   const [error, setError] = useState<string | null>(null);
+  const [failureDiagnostic, setFailureDiagnostic] =
+    useState<DiscoveryFailureDiagnostic | null>(null);
   const [result, setResult] = useState<DiscoveryRunResult | null>(null);
   const [discoveryId, setDiscoveryId] = useState<string | null>(null);
   const [cacheHit, setCacheHit] = useState(false);
@@ -166,6 +169,7 @@ export function DiscoveryLab() {
     setCopyStatus("idle");
     setSelectedIndex(0);
     setError(null);
+    setFailureDiagnostic(null);
     setStatus("upload");
   };
 
@@ -174,6 +178,7 @@ export function DiscoveryLab() {
     const requestId = ++requestSequence.current;
     setStatus("loading");
     setError(null);
+    setFailureDiagnostic(null);
     try {
       const dataUrl = await fileToDataUrl(file);
       const discoveryId = await startDiscovery(dataUrl);
@@ -191,6 +196,7 @@ export function DiscoveryLab() {
           return;
         }
         if (job.status === "error") {
+          setFailureDiagnostic(job.diagnostic ?? null);
           throw new Error(job.error ?? "Discovery failed.");
         }
         if (Date.now() > deadline) {
@@ -213,6 +219,7 @@ export function DiscoveryLab() {
     setCopyStatus("idle");
     setSelectedIndex(0);
     setError(null);
+    setFailureDiagnostic(null);
     setStatus("upload");
   };
 
@@ -566,6 +573,79 @@ export function DiscoveryLab() {
             <div className="mt-5 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-center text-sm text-destructive">
               {error}
             </div>
+          )}
+
+          {status === "error" && failureDiagnostic && (
+            <details
+              open
+              className="mt-3 rounded-md border border-dashed border-border bg-muted/20 p-4 text-sm"
+            >
+              <summary className="cursor-pointer font-medium">
+                Developer / eval failure diagnostics
+              </summary>
+              <div className="mt-3 space-y-3 text-left text-muted-foreground">
+                <div className="grid gap-1 sm:grid-cols-2">
+                  <span>Failed stage: {failureDiagnostic.failed_stage}</span>
+                  <span>Category: {failureDiagnostic.category}</span>
+                  <span>Runtime: {seconds(failureDiagnostic.elapsed_ms)}</span>
+                  <span>
+                    Known cost:{" "}
+                    {money(
+                      failureDiagnostic.partial_metrics.known_total_cost_usd,
+                    )}
+                  </span>
+                  <span>
+                    Known tokens:{" "}
+                    {failureDiagnostic.partial_metrics.known_total_tokens ??
+                      "n/a"}
+                  </span>
+                  <span>
+                    Research calls:{" "}
+                    {
+                      failureDiagnostic.partial_metrics.research.completed_calls
+                        .length
+                    }
+                    /
+                    {failureDiagnostic.partial_metrics.research.attempted_calls}
+                    {" completed / attempted"}
+                  </span>
+                </div>
+                <p>{failureDiagnostic.message}</p>
+                {(failureDiagnostic.candidate_id ||
+                  failureDiagnostic.question_id) && (
+                  <p>
+                    Candidate: {failureDiagnostic.candidate_id ?? "n/a"} ·
+                    Question: {failureDiagnostic.question_id ?? "n/a"}
+                  </p>
+                )}
+                {failureDiagnostic.partial_metrics.research.completed_calls
+                  .length > 0 && (
+                  <div className="space-y-2">
+                    <p className="font-medium text-foreground">
+                      Completed research calls
+                    </p>
+                    {failureDiagnostic.partial_metrics.research.completed_calls.map(
+                      (call) => (
+                        <div
+                          key={`${call.candidate_id}:${call.question_id}`}
+                          className="rounded border border-border bg-background p-2"
+                        >
+                          <p>
+                            {call.candidate_id} / {call.question_id} ·{" "}
+                            {call.status}
+                          </p>
+                          <p>
+                            {seconds(call.usage.latency_ms)} ·{" "}
+                            {call.usage.total_tokens ?? "n/a"} tokens ·{" "}
+                            {money(call.cost_usd)}
+                          </p>
+                        </div>
+                      ),
+                    )}
+                  </div>
+                )}
+              </div>
+            </details>
           )}
         </div>
       </div>

@@ -8,6 +8,7 @@ import {
 import type {
   DiscoveryCandidate,
   DiscoveryIdentityVerification,
+  DiscoverySource,
   DiscoveryStage1,
 } from "../../artifacts/api-server/src/lib/discoveryContracts";
 import {
@@ -154,6 +155,7 @@ function batchResult(
 }
 
 function response(outputText: string, sourceUrls: string[] = []) {
+  let citationSearchStart = 0;
   return {
     model: "gpt-5.6-terra",
     output_text: outputText,
@@ -164,13 +166,22 @@ function response(outputText: string, sourceUrls: string[] = []) {
           {
             type: "output_text",
             text: outputText,
-            annotations: sourceUrls.map((url) => ({
-              type: "url_citation",
-              title: `Validated ${url.split("/").pop()}`,
-              url,
-              start_index: 0,
-              end_index: 10,
-            })),
+            annotations: sourceUrls.map((url) => {
+              const foundAt = outputText.indexOf(url, citationSearchStart);
+              const startIndex = foundAt >= 0 ? foundAt : 0;
+              const endIndex =
+                foundAt >= 0
+                  ? foundAt + url.length
+                  : Math.min(10, outputText.length);
+              citationSearchStart = endIndex;
+              return {
+                type: "url_citation",
+                title: `Validated ${url.split("/").pop()}`,
+                url,
+                start_index: startIndex,
+                end_index: endIndex,
+              };
+            }),
           },
         ],
       },
@@ -183,6 +194,37 @@ function response(outputText: string, sourceUrls: string[] = []) {
       total_tokens: 280,
     },
   };
+}
+
+function citationContext(input: unknown, sources: DiscoverySource[] = []) {
+  const outputText = JSON.stringify(input);
+  let searchStart = 0;
+  return {
+    output_text: outputText,
+    citations: sources.map((source) => {
+      const startIndex = outputText.indexOf(source.url, searchStart);
+      assert.notEqual(
+        startIndex,
+        -1,
+        `source URL missing from fixture: ${source.url}`,
+      );
+      searchStart = startIndex + source.url.length;
+      return {
+        ...source,
+        start_index: startIndex,
+        end_index: searchStart,
+      };
+    }),
+  };
+}
+
+function validateBatch(input: unknown, sources: DiscoverySource[] = []) {
+  return validateDiscoveryBatchResults(
+    stage1Fixture,
+    gatedCandidates,
+    input,
+    citationContext(input, sources),
+  );
 }
 
 function chatResponse(content: unknown) {
@@ -383,105 +425,238 @@ test("unverified and conflicted identities never enter batch candidate context",
 test("unknown candidate results are rejected", () => {
   assert.throws(
     () =>
-      validateDiscoveryBatchResults(
-        stage1Fixture,
-        gatedCandidates,
-        {
-          results: [
-            { ...batchResult(gatedCandidates[0]!), candidate_id: "unknown" },
-          ],
-        },
-        [],
-      ),
-    DiscoveryBatchValidationError,
+      validateBatch({
+        results: [
+          { ...batchResult(gatedCandidates[0]!), candidate_id: "unknown" },
+        ],
+      }),
+    (error) =>
+      error instanceof DiscoveryBatchValidationError &&
+      error.validationCategory === "unknown_candidate",
   );
 });
 
 test("mismatched question ids are rejected", () => {
-  assert.throws(() =>
-    validateDiscoveryBatchResults(
-      stage1Fixture,
-      gatedCandidates,
-      {
+  assert.throws(
+    () =>
+      validateBatch({
         results: [
           { ...batchResult(gatedCandidates[0]!), question_id: "other" },
         ],
-      },
-      [],
-    ),
+      }),
+    (error) =>
+      error instanceof DiscoveryBatchValidationError &&
+      error.validationCategory === "question_mismatch",
   );
 });
 
 test("duplicate candidate results are rejected", () => {
   const result = batchResult(gatedCandidates[0]!, "insufficient");
-  assert.throws(() =>
-    validateDiscoveryBatchResults(
-      stage1Fixture,
-      gatedCandidates,
-      { results: [result, result] },
-      [],
-    ),
+  assert.throws(
+    () => validateBatch({ results: [result, result] }),
+    (error) =>
+      error instanceof DiscoveryBatchValidationError &&
+      error.validationCategory === "duplicate",
   );
 });
 
 test("missing candidate results become isolated insufficient results", () => {
-  const validated = validateDiscoveryBatchResults(
-    stage1Fixture,
-    gatedCandidates,
-    { results: [batchResult(gatedCandidates[0]!, "insufficient")] },
-    [],
-  );
+  const validated = validateBatch({
+    results: [batchResult(gatedCandidates[0]!, "insufficient")],
+  });
   assert.deepEqual(validated.missing_candidate_ids, ["c2"]);
   assert.equal(validated.results[1]!.status, "insufficient");
   assert.match(validated.results[1]!.finding, /did not return/);
 });
 
 test("one candidate can be answered while another is insufficient", () => {
-  const validated = validateDiscoveryBatchResults(
-    stage1Fixture,
-    gatedCandidates,
-    {
-      results: [
-        batchResult(gatedCandidates[0]!, "answered"),
-        batchResult(gatedCandidates[1]!, "insufficient"),
-      ],
-    },
-    [{ title: "C1", url: "https://example.com/c1" }],
-  );
+  const input = {
+    results: [
+      batchResult(gatedCandidates[0]!, "answered"),
+      batchResult(gatedCandidates[1]!, "insufficient"),
+    ],
+  };
+  const validated = validateBatch(input, [
+    { title: "C1", url: "https://example.com/c1" },
+  ]);
   assert.deepEqual(
     validated.results.map((result) => result.status),
     ["answered", "insufficient"],
   );
 });
 
+test("valid multi-candidate answered batch preserves each cited source", () => {
+  const input = {
+    results: [
+      batchResult(gatedCandidates[0]!, "answered"),
+      batchResult(gatedCandidates[1]!, "answered"),
+    ],
+  };
+  const validated = validateBatch(input, [
+    { title: "C1", url: "https://example.com/c1" },
+    { title: "C2", url: "https://example.com/c2" },
+  ]);
+  assert.deepEqual(
+    validated.results.map((result) => [result.status, result.sources[0]?.url]),
+    [
+      ["answered", "https://example.com/c1"],
+      ["answered", "https://example.com/c2"],
+    ],
+  );
+  assert.deepEqual(validated.validation_issues, []);
+});
+
+test("all-insufficient batch accepts empty source arrays", () => {
+  const validated = validateBatch({
+    results: gatedCandidates.map((candidate) =>
+      batchResult(candidate, "insufficient"),
+    ),
+  });
+  assert.equal(
+    validated.results.every(
+      (result) =>
+        result.status === "insufficient" && result.sources.length === 0,
+    ),
+    true,
+  );
+  assert.deepEqual(validated.invalid_candidate_ids, []);
+});
+
+test("one malformed sibling does not invalidate valid siblings", () => {
+  const malformed = {
+    ...batchResult(gatedCandidates[1]!, "answered"),
+    unexpected: "field",
+  };
+  const input = {
+    results: [batchResult(gatedCandidates[0]!, "answered"), malformed],
+  };
+  const validated = validateBatch(input, [
+    { title: "C1", url: "https://example.com/c1" },
+    { title: "C2", url: "https://example.com/c2" },
+  ]);
+  assert.equal(validated.results[0]!.status, "answered");
+  assert.equal(validated.results[1]!.status, "insufficient");
+  assert.deepEqual(validated.invalid_candidate_ids, ["c2"]);
+  assert.deepEqual(validated.validation_issues, [
+    {
+      candidate_id: "c2",
+      question_id: "q2",
+      validation_category: "schema",
+      safe_message:
+        "The candidate result did not match the strict batch schema.",
+    },
+  ]);
+});
+
 test("candidate sources remain scoped and are never globally attached", () => {
+  const input = {
+    results: [
+      batchResult(gatedCandidates[0]!, "answered"),
+      batchResult(gatedCandidates[1]!, "insufficient"),
+    ],
+  };
+  const validated = validateBatch(input, [
+    { title: "C1", url: "https://example.com/c1" },
+  ]);
+  assert.equal(validated.results[0]!.sources.length, 1);
+  assert.deepEqual(validated.results[1]!.sources, []);
+});
+
+test("a citation inside candidate A cannot satisfy candidate B", () => {
+  const sharedUrl = "https://example.com/shared";
+  const input = {
+    results: [
+      batchResult(gatedCandidates[0]!, "answered", sharedUrl),
+      batchResult(gatedCandidates[1]!, "answered", sharedUrl),
+    ],
+  };
+  const validated = validateBatch(input, [
+    { title: "Scoped to C1", url: sharedUrl },
+  ]);
+  assert.equal(validated.results[0]!.status, "answered");
+  assert.equal(validated.results[1]!.status, "insufficient");
+  assert.deepEqual(validated.invalid_candidate_ids, ["c2"]);
+  assert.equal(
+    validated.validation_issues[0]?.validation_category,
+    "source_validation",
+  );
+});
+
+test("provider citation tracking does not break same-resource validation", () => {
+  const modelUrl = "https://example.com/report";
+  const citationUrl = "https://example.com/report?utm_source=chatgpt.com";
+  const input = {
+    results: [
+      batchResult(gatedCandidates[0]!, "answered", modelUrl),
+      batchResult(gatedCandidates[1]!, "insufficient"),
+    ],
+  };
+  const outputText = JSON.stringify(input);
+  const startIndex = outputText.indexOf(modelUrl);
   const validated = validateDiscoveryBatchResults(
     stage1Fixture,
     gatedCandidates,
+    input,
     {
-      results: [
-        batchResult(gatedCandidates[0]!, "answered"),
-        batchResult(gatedCandidates[1]!, "insufficient"),
+      output_text: outputText,
+      citations: [
+        {
+          title: "Tracked citation",
+          url: citationUrl,
+          start_index: startIndex,
+          end_index: startIndex + modelUrl.length,
+        },
       ],
     },
-    [{ title: "C1", url: "https://example.com/c1" }],
   );
-  assert.equal(validated.results[0]!.sources.length, 1);
-  assert.deepEqual(validated.results[1]!.sources, []);
+  assert.equal(validated.results[0]!.status, "answered");
+  assert.equal(validated.results[0]!.sources[0]?.url, citationUrl);
 });
 
 test("invalid or uncited URLs invalidate only their candidate result", () => {
   const invalid = batchResult(gatedCandidates[0]!);
   invalid.sources = [{ title: "Unsafe", url: "javascript:alert(1)" }];
-  const validated = validateDiscoveryBatchResults(
-    stage1Fixture,
-    gatedCandidates,
-    { results: [invalid, batchResult(gatedCandidates[1]!, "insufficient")] },
-    [],
-  );
+  const input = {
+    results: [invalid, batchResult(gatedCandidates[1]!, "answered")],
+  };
+  const validated = validateBatch(input, [
+    { title: "C2", url: "https://example.com/c2" },
+  ]);
   assert.deepEqual(validated.invalid_candidate_ids, ["c1"]);
   assert.equal(validated.results[0]!.status, "insufficient");
   assert.deepEqual(validated.results[0]!.sources, []);
+  assert.equal(validated.results[1]!.status, "answered");
+  assert.deepEqual(validated.validation_issues, [
+    {
+      candidate_id: "c1",
+      question_id: "q1",
+      validation_category: "malformed_url",
+      safe_message: "A source URL was not a valid HTTP(S) URL.",
+    },
+  ]);
+});
+
+test("an uncited HTTP source invalidates only its candidate", () => {
+  const input = {
+    results: [
+      batchResult(gatedCandidates[0]!, "answered"),
+      batchResult(gatedCandidates[1]!, "answered"),
+    ],
+  };
+  const validated = validateBatch(input, [
+    { title: "C2", url: "https://example.com/c2" },
+  ]);
+  assert.equal(validated.results[0]!.status, "insufficient");
+  assert.equal(validated.results[1]!.status, "answered");
+  assert.deepEqual(validated.validation_issues, [
+    {
+      candidate_id: "c1",
+      question_id: "q1",
+      validation_category: "source_validation",
+      safe_message:
+        "A claimed source was not cited within this candidate result.",
+    },
+  ]);
 });
 
 test("extra Terra-generated question fields are rejected per candidate", () => {
@@ -489,12 +664,10 @@ test("extra Terra-generated question fields are rejected per candidate", () => {
     ...batchResult(gatedCandidates[0]!),
     question: "A broader model-generated question?",
   };
-  const validated = validateDiscoveryBatchResults(
-    stage1Fixture,
-    gatedCandidates,
-    { results: [generated] },
-    [{ title: "C1", url: "https://example.com/c1" }],
-  );
+  const input = { results: [generated] };
+  const validated = validateBatch(input, [
+    { title: "C1", url: "https://example.com/c1" },
+  ]);
   assert.deepEqual(validated.invalid_candidate_ids, ["c1"]);
   assert.equal(validated.results[0]!.status, "insufficient");
 });
@@ -616,6 +789,14 @@ test("batched failure diagnostics distinguish API, schema, and candidate failure
     "candidate_validation",
   );
   assert.equal(
+    candidate.diagnostic.research_validation_category,
+    "unknown_candidate",
+  );
+  assert.equal(
+    candidate.diagnostic.safe_validation_message,
+    "Batched research returned an unknown candidate",
+  );
+  assert.equal(
     candidate.diagnostic.engine_version,
     DISCOVERY_BATCHED_RESEARCH_ENGINE_VERSION,
   );
@@ -648,6 +829,40 @@ test("batched metrics and full eval JSON expose comparison fields safely", async
   assert.equal(payload.inspection.research_batch?.candidates.length, 2);
   assert.equal(payload.metrics.stage2.batch?.candidate_ids.length, 2);
   assert.doesNotMatch(JSON.stringify(payload), /reasoning_tokens/);
+});
+
+test("safe per-candidate validation reasons survive eval serialization", async () => {
+  const malformed = {
+    ...batchResult(gatedCandidates[1]!),
+    unexpected: "field",
+  };
+  const result = await runDiscoveryPipeline(
+    fakeBatchedClient({
+      batchOutput: {
+        results: [batchResult(gatedCandidates[0]!), malformed],
+      },
+    }),
+    "data:image/png;base64,YWJj",
+    { variant: "v1-batched-research" },
+  );
+  const payload = createDiscoveryEvalPayload({
+    result,
+    discoveryId: "mixed-batched-run",
+    cacheHit: false,
+  });
+  assert.deepEqual(payload.inspection.research_batch?.validation_issues, [
+    {
+      candidate_id: "c2",
+      question_id: "q2",
+      validation_category: "schema",
+      safe_message:
+        "The candidate result did not match the strict batch schema.",
+    },
+  ]);
+  assert.doesNotMatch(
+    JSON.stringify(payload),
+    /reasoning_tokens|api[_-]?key|authorization|stack|raw_response/i,
+  );
 });
 
 test("legacy root and Discovery lab routes remain distinct", () => {

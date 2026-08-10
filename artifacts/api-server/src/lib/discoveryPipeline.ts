@@ -24,8 +24,11 @@ import {
   buildDiscoveryBatchContext,
   validateDiscoveryBatchResults,
   type DiscoveryBatchCandidateContext,
+  type DiscoveryBatchCitation,
   type DiscoveryBatchFailureScope,
   type DiscoveryBatchIdentityMapping,
+  type DiscoveryBatchValidationCategory,
+  type DiscoveryBatchValidationIssue,
 } from "./discoveryBatchResearch";
 import { estimateModelCost } from "./modelPricing";
 
@@ -89,6 +92,8 @@ You receive a compact text-only list of questions already approved by the visual
 For each candidate, remain tied to its visual trigger and grounded observation. Return insufficient independently when trustworthy evidence is inadequate. Keep each finding and its sources scoped only to the candidate they support. Verified identity context, when present for a candidate, is search context only and is never permission for generic topic research.
 
 Never treat visual similarity, shared labels, typography, motifs, composition, or generic structure as proof that an external source depicts the same exact place, figure, object, or image. Never infer provenance of an underlying visual merely because a modern source reproduces, uses, or discusses it. Prefer insufficient evidence over unsupported specificity.
+
+For every answered result, include at least one HTTP(S) source URL cited by the web-search response inside that same candidate result. Copy cited URLs exactly, including their query string. An insufficient result may use an empty sources array.
 
 Use web-search citations only. Never invent source URLs. Return only the strict JSON result.`;
 
@@ -156,6 +161,7 @@ export interface DiscoveryBatchResearchMetrics extends DiscoveryStageMetrics {
   missing_candidate_ids: string[];
   answered_candidates: number;
   insufficient_candidates: number;
+  validation_issues: DiscoveryBatchValidationIssue[];
 }
 
 export interface DiscoveryBatchInspection {
@@ -163,6 +169,7 @@ export interface DiscoveryBatchInspection {
   identity_context_mappings: DiscoveryBatchIdentityMapping[];
   invalid_candidate_ids: string[];
   missing_candidate_ids: string[];
+  validation_issues: DiscoveryBatchValidationIssue[];
 }
 
 export interface DiscoveryPipelineMetrics {
@@ -257,6 +264,8 @@ export interface DiscoveryFailureDiagnostic {
   candidate_id?: string;
   question_id?: string;
   research_failure_scope?: DiscoveryBatchFailureScope;
+  research_validation_category?: DiscoveryBatchValidationCategory;
+  safe_validation_message?: string;
   affected_candidate_ids?: string[];
   partial_metrics: {
     stage1: DiscoverySafeStageMetrics | null;
@@ -296,6 +305,8 @@ interface DiscoveryExecutionState {
   researchCalls: DiscoveryResearchCallMetrics[];
   attemptedResearchCalls: number;
   researchFailureScope?: DiscoveryBatchFailureScope;
+  researchValidationCategory?: DiscoveryBatchValidationCategory;
+  safeValidationMessage?: string;
   affectedCandidateIds?: string[];
   stage3: DiscoveryStageMetrics | null;
 }
@@ -560,6 +571,12 @@ function createFailureDiagnostic(
     ...(state.researchFailureScope
       ? { research_failure_scope: state.researchFailureScope }
       : {}),
+    ...(state.researchValidationCategory
+      ? { research_validation_category: state.researchValidationCategory }
+      : {}),
+    ...(state.safeValidationMessage
+      ? { safe_validation_message: state.safeValidationMessage }
+      : {}),
     ...(state.affectedCandidateIds
       ? { affected_candidate_ids: state.affectedCandidateIds }
       : {}),
@@ -619,8 +636,10 @@ export function createUnknownDiscoveryFailureDiagnostic(
   );
 }
 
-function extractValidatedSources(response: Response): DiscoverySource[] {
-  const sources = new Map<string, DiscoverySource>();
+function extractValidatedSourceCitations(
+  response: Response,
+): DiscoveryBatchCitation[] {
+  const citations: DiscoveryBatchCitation[] = [];
   for (const item of response.output) {
     if (item.type !== "message") continue;
     for (const content of item.content) {
@@ -632,12 +651,25 @@ function extractValidatedSources(response: Response): DiscoverySource[] {
           if (parsed.protocol !== "https:" && parsed.protocol !== "http:")
             continue;
           const title = annotation.title.trim() || parsed.hostname;
-          sources.set(annotation.url, { title, url: annotation.url });
+          citations.push({
+            title,
+            url: annotation.url,
+            start_index: annotation.start_index,
+            end_index: annotation.end_index,
+          });
         } catch {
           // Invalid citation metadata is excluded before schema validation.
         }
       }
     }
+  }
+  return citations;
+}
+
+function extractValidatedSources(response: Response): DiscoverySource[] {
+  const sources = new Map<string, DiscoverySource>();
+  for (const citation of extractValidatedSourceCitations(response)) {
+    sources.set(citation.url, { title: citation.title, url: citation.url });
   }
   return [...sources.values()];
 }
@@ -948,6 +980,7 @@ async function runBatchedSelectiveResearchWithState(
         ...batchContext,
         invalid_candidate_ids: [],
         missing_candidate_ids: [],
+        validation_issues: [],
       },
     };
   }
@@ -986,11 +1019,16 @@ async function runBatchedSelectiveResearchWithState(
       stage1,
       gatedCandidates,
       JSON.parse(response.output_text),
-      extractValidatedSources(response),
+      {
+        output_text: response.output_text,
+        citations: extractValidatedSourceCitations(response),
+      },
     );
   } catch (error) {
     if (error instanceof DiscoveryBatchValidationError) {
       state.researchFailureScope = error.scope;
+      state.researchValidationCategory = error.validationCategory;
+      state.safeValidationMessage = error.message;
       state.currentCandidateId = error.candidateId;
       state.currentQuestionId = error.questionId;
       state.affectedCandidateIds = error.candidateId
@@ -1006,6 +1044,8 @@ async function runBatchedSelectiveResearchWithState(
   const insufficientCandidates =
     validatedBatch.results.length - answeredCandidates;
   state.researchFailureScope = undefined;
+  state.researchValidationCategory = undefined;
+  state.safeValidationMessage = undefined;
   state.affectedCandidateIds = undefined;
   state.lastCompletedStage = "research";
   return {
@@ -1027,11 +1067,13 @@ async function runBatchedSelectiveResearchWithState(
       missing_candidate_ids: validatedBatch.missing_candidate_ids,
       answered_candidates: answeredCandidates,
       insufficient_candidates: insufficientCandidates,
+      validation_issues: validatedBatch.validation_issues,
     },
     batchInspection: {
       ...batchContext,
       invalid_candidate_ids: validatedBatch.invalid_candidate_ids,
       missing_candidate_ids: validatedBatch.missing_candidate_ids,
+      validation_issues: validatedBatch.validation_issues,
     },
   };
 }

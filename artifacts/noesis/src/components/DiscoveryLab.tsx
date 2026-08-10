@@ -439,12 +439,26 @@ export function DiscoveryLab() {
                     {result.metrics.stage2.candidate_research_api_calls}
                   </p>
                   {result.metrics.stage2.batch && (
-                    <p>
-                      <strong className="text-foreground">
-                        Batch candidates:
-                      </strong>{" "}
-                      {result.metrics.stage2.batch.candidate_count}
-                    </p>
+                    <>
+                      <p>
+                        <strong className="text-foreground">
+                          Batch candidates:
+                        </strong>{" "}
+                        {result.metrics.stage2.batch.candidate_count}
+                      </p>
+                      {result.metrics.stage2.batch.validation_issues.map(
+                        (issue) => (
+                          <p
+                            key={`${issue.candidate_id}:${issue.validation_category}`}
+                          >
+                            <strong className="text-foreground">
+                              {issue.candidate_id} validation:
+                            </strong>{" "}
+                            {issue.validation_category} — {issue.safe_message}
+                          </p>
+                        ),
+                      )}
+                    </>
                   )}
                 </div>
                 {(selectedCandidates ?? []).map((candidate) => {
@@ -628,6 +642,15 @@ export function DiscoveryLab() {
                       Research failure:{" "}
                       {failureDiagnostic.research_failure_scope}
                     </span>
+                  )}
+                  {failureDiagnostic.research_validation_category && (
+                    <span>
+                      Validation category:{" "}
+                      {failureDiagnostic.research_validation_category}
+                    </span>
+                  )}
+                  {failureDiagnostic.safe_validation_message && (
+                    <span>{failureDiagnostic.safe_validation_message}</span>
                   )}
                   <span>Runtime: {seconds(failureDiagnostic.elapsed_ms)}</span>
                   <span>

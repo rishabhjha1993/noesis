@@ -163,6 +163,22 @@ export interface DiscoveryBatchResearchMetrics extends DiscoveryStageMetrics {
   missing_candidate_ids: string[];
   answered_candidates: number;
   insufficient_candidates: number;
+  validation_issues: DiscoveryBatchValidationIssue[];
+}
+
+export interface DiscoveryBatchValidationIssue {
+  candidate_id: string;
+  question_id: string;
+  validation_category:
+    | "schema"
+    | "question_mismatch"
+    | "unknown_candidate"
+    | "duplicate"
+    | "source_validation"
+    | "malformed_url"
+    | "missing_required_field"
+    | "unknown";
+  safe_message: string;
 }
 
 export interface DiscoveryRunResult {
@@ -184,6 +200,7 @@ export interface DiscoveryRunResult {
       identity_context_mappings: DiscoveryBatchIdentityMapping[];
       invalid_candidate_ids: string[];
       missing_candidate_ids: string[];
+      validation_issues: DiscoveryBatchValidationIssue[];
     };
   };
   metrics: {
@@ -264,6 +281,8 @@ export interface DiscoveryFailureDiagnostic {
   question_id?: string;
   research_failure_scope?:
     "batch_api" | "batch_schema" | "candidate_validation";
+  research_validation_category?: DiscoveryBatchValidationIssue["validation_category"];
+  safe_validation_message?: string;
   affected_candidate_ids?: string[];
   partial_metrics: {
     stage1: DiscoverySafeStageMetrics | null;

@@ -6,7 +6,7 @@
 
 ## Current Product State
 
-The legacy Noesis experience works as a standalone full-stack Node service. The React upload/result UI, Express API, asynchronous analysis jobs and polling, deterministic evidence computation, OpenAI analysis pipeline, cache support, and evaluation infrastructure are preserved. Platform-independent production serving, minimum public-safety controls, instrumentation, and evaluation infrastructure are checkpointed in Git and deployed. Discovery Engine V1 exists as the parallel, experimental branch path at `/discovery-lab`; it is committed, pushed, and qualitatively evaluated on Noordoostpolder, Minard, and Pantheon, but has not been deployed. The lab can copy a complete safe eval JSON projection of a completed run for human review and shows safe stage-aware diagnostics with partial known cost and token usage when a run fails.
+The legacy Noesis experience works as a standalone full-stack Node service. The React upload/result UI, Express API, asynchronous analysis jobs and polling, deterministic evidence computation, OpenAI analysis pipeline, cache support, and evaluation infrastructure are preserved. Platform-independent production serving, minimum public-safety controls, instrumentation, and evaluation infrastructure are checkpointed in Git and deployed. Discovery Engine V1 exists as the parallel, experimental branch path at `/discovery-lab`; it is committed, pushed, and qualitatively evaluated on Noordoostpolder, Minard, and Pantheon, but has not been deployed. The lab can copy a complete safe eval JSON projection of a completed run, shows safe stage-aware failure diagnostics, and now permits an explicit choice between baseline V1 and the isolated batched-research Cost Experiment A.
 
 ## Live Deployment
 
@@ -21,7 +21,7 @@ The legacy Noesis experience works as a standalone full-stack Node service. The 
 
 ## Current Milestone
 
-Discovery Engine V1 verified identity context and failure observability are implemented and technically verified. Current V1 quality is the non-inferiority baseline. The next milestone is isolated Cost Experiment A: batch all approved candidate research questions into one Terra call after unchanged identity verification.
+Cost Experiment A is implemented and technically verified as the isolated `discovery-engine-v1-batched-research` variant. Current `discovery-engine-v1` remains the default and fixed non-inferiority baseline. The next milestone is human same-image A/B evaluation of baseline V1 against the batched variant; no further optimization is authorized before that review.
 
 ## Completed
 
@@ -46,15 +46,18 @@ Discovery Engine V1 verified identity context and failure observability are impl
 - Structured server logs now serialize a safe error detail instead of `{}`, while the failed polling response and secondary `/discovery-lab` eval panel receive only the sanitized diagnostic projection.
 - Real-world Discovery V1 baseline runs completed for Noordoostpolder, Minard, and Pantheon, establishing same-input quality and economic comparison targets for cost experiments.
 - The standing cost-quality engineering principle was added to `AGENTS.md` and pushed as `740a7e6`.
+- Cost Experiment A committed and pushed as `50b813b`: all research-gated candidate questions are sent in one compact Terra call after the unchanged optional identity-verification call, with strict per-candidate result and source validation.
+- Baseline V1 remains the default path and retains its independent `discovery-engine-v1` cache identity; the experiment uses `discovery-engine-v1-batched-research` and can be selected explicitly in `/discovery-lab`.
+- Batched research inspection, source-to-candidate mappings, identity-context mappings, API-call counts, answered/insufficient counts, stage and total cost, cost per successful analysis, cost per final discovery, and scoped failure diagnostics are available in the safe evaluation result.
 
 ## In Progress
 
 - No implementation work is currently in progress.
-- Cost Experiment A is specified but not yet implemented. It will isolate batched candidate research while preserving baseline V1 and all intelligence settings.
+- Human qualitative and economic A/B evaluation of baseline V1 versus Cost Experiment A is pending.
 
 ## Verification
 
-Latest verified on 2026-08-10:
+Latest verified on 2026-08-11:
 
 - Typecheck: passed across all workspace projects.
 - Tests: 12/12 passed.
@@ -89,10 +92,15 @@ Latest verified on 2026-08-10:
 - Minard V1 baseline: approximately $0.317 total, 160 seconds, and $0.178 Stage 2 cost; all five research questions answered. Critical retained discoveries are troop-count route width, advance/retreat color logic, the geographically anchored retreat temperature graph, and detached-corps branches. Minard carries memorization risk and is a secondary benchmark only.
 - Pantheon V1 baseline: approximately $0.352 total, 164 seconds, and $0.194 Stage 2 cost; all three research questions answered. Critical retained discoveries are the equal diameter/height sphere geometry and shrinking-coffer geometric/structural design.
 - Pantheon source-entailment issue: a modern paper using or reproducing a historic-looking drawing does not establish that the underlying drawing itself is a modern visualization. This known quality issue is recorded for evaluation and is not to be fixed inside Cost Experiment A.
+- Cost Experiment A typecheck: passed across all workspace projects.
+- Cost Experiment A tests: 78/78 total repository tests passed, including 18 focused batched-research checks for one-call gating, exact candidate/question mapping, separate verify-once identity handling, verified-context scoping, missing/invalid sibling isolation, strict source ownership and URL validation, Stage 3 contract equivalence, cache isolation, failure diagnostics, safe eval JSON, and legacy-route preservation.
+- Cost Experiment A full build: passed for the API server, Noesis frontend, and mockup sandbox; the existing non-fatal Vite tooltip sourcemap warning remains.
+- Cost Experiment A local runtime: `/discovery-lab` defaulted to baseline V1, switched explicitly to the batched variant, and legacy `/` rendered unchanged with no browser warnings or errors. No image was submitted and no paid model call was made.
+- Cost Experiment A safety/diff review: no baseline Stage 1, candidate-research, or Stage 3 prompt; model; reasoning level; research gate; ranking; or legacy route was changed. The staged diff contained no secret-pattern matches.
 
 ## Latest Stable Commit
 
-`482793c` — safe Discovery failed-run diagnostics and partial known-cost visibility.
+`50b813b` — isolated batched candidate-research Cost Experiment A.
 
 ## Important Decisions
 
@@ -114,6 +122,8 @@ Latest verified on 2026-08-10:
 - Failed Discovery jobs expose only a sanitized diagnostic projection to the browser. Raw provider error details and server-only stacks remain in redacted structured logs; prompts, request bodies, secrets, images, and reasoning-token breakdowns are not returned.
 - Failure observability is measurement-only: V1 prompts, models, reasoning levels, research gate, ranking, cache identity/behavior, and successful result contracts remain unchanged.
 - Current `discovery-engine-v1` quality is the fixed non-inferiority baseline for cost experiments; economic improvements do not pass if visual grounding, usefulness, unsupported-claim rate, research usefulness, source integrity, or existing evaluation dimensions regress.
+- Cost Experiment A is opt-in and isolated by API variant, UI selector, engine version, and cache identity. It preserves the existing Stage 1, conditional identity verification, Stage 3 synthesis, model allocation, and medium reasoning levels.
+- Batched Stage 2 sends only compact deterministic context for candidates that already passed the existing research gate. Missing or invalid individual results degrade only that candidate to `insufficient`; unknown ids, mismatched question ids, duplicate results, or malformed envelopes fail with scoped diagnostics.
 
 ## Known Issues / Risks
 
@@ -130,7 +140,8 @@ Latest verified on 2026-08-10:
 - V1 identity verification is limited to one operation and one verified hypothesis per run; multiple genuinely distinct identities in one image remain outside this first implementation.
 - The three current real-world V1 samples are useful but limited; Minard is memorization-prone, and broader quality judgment remains human-led.
 - Pantheon demonstrated a source-entailment risk: reproduction or use by a modern source does not prove provenance of the underlying visual.
+- Cost Experiment A has not received a paid same-image A/B run. Its real answer quality, source entailment, latency, and cost relative to baseline remain unmeasured.
 
 ## Next Step
 
-Implement isolated Cost Experiment A as a separate `discovery-engine-v1-batched-research` variant, then prepare `/discovery-lab` for human same-image A/B evaluation against baseline V1. Do not run paid calls during implementation.
+Run controlled human same-image A/B evaluations of baseline `discovery-engine-v1` versus `discovery-engine-v1-batched-research`, using the fixed V1 results as the non-inferiority quality bar. Do not optimize further before reviewing those results.

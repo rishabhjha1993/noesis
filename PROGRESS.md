@@ -6,7 +6,7 @@
 
 ## Current Product State
 
-The legacy Noesis experience works as a standalone full-stack Node service. The React upload/result UI, Express API, asynchronous analysis jobs and polling, deterministic evidence computation, OpenAI analysis pipeline, cache support, and evaluation infrastructure are preserved. Platform-independent production serving, minimum public-safety controls, instrumentation, and evaluation infrastructure are checkpointed in Git and deployed. Discovery Engine V1 exists as the parallel, experimental branch path at `/discovery-lab`; it is committed, pushed, and qualitatively evaluated on Noordoostpolder, Minard, Pantheon, and Chuquicamata, but has not been deployed. The lab can copy a complete safe eval JSON projection of a completed run, shows safe stage-aware failure diagnostics, and permits an explicit choice between baseline V1 and the isolated batched-research Cost Experiment A. Batched validation now reports safe per-candidate reasons while preserving candidate-local citation ownership.
+The legacy Noesis experience works as a standalone full-stack Node service. The React upload/result UI, Express API, asynchronous analysis jobs and polling, deterministic evidence computation, OpenAI analysis pipeline, cache support, and evaluation infrastructure are preserved. Platform-independent production serving, minimum public-safety controls, instrumentation, and evaluation infrastructure are checkpointed in Git and deployed. Discovery Engine V1 exists as the parallel, experimental branch path at `/discovery-lab`; it is committed, pushed, and qualitatively evaluated on Noordoostpolder, Minard, Pantheon, and Chuquicamata, but has not been deployed. The lab can copy a complete safe eval JSON projection of a completed run, shows safe stage-aware failure diagnostics, and permits an explicit choice between baseline V1 and the isolated batched-research Cost Experiment A. Batched validation preserves candidate-local citation ownership and now carries versioned safe per-candidate diagnostics through job persistence and the real API response without crashing on older result shapes.
 
 ## Live Deployment
 
@@ -21,7 +21,7 @@ The legacy Noesis experience works as a standalone full-stack Node service. The 
 
 ## Current Milestone
 
-Cost Experiment A is implemented and technically verified as the isolated `discovery-engine-v1-batched-research` variant. Current `discovery-engine-v1` remains the default and fixed non-inferiority baseline. Chuquicamata showed promising batch economics, but its first batched quality result was invalidated by a source-validation contract mismatch that is now fixed. The next milestone is to rerun only the batched variant on the exact same Chuquicamata image and compare it with the retained baseline result.
+Cost Experiment A is implemented and technically verified as the isolated `discovery-engine-v1-batched-research` variant. Current `discovery-engine-v1` remains the default and fixed non-inferiority baseline. A second cold Chuquicamata batched run still rejected all four candidates, but it was served by a stale backend runtime that omitted the diagnostics added in `86bf1ca`; the exact candidate-validation cause therefore cannot be reconstructed from that result. The next milestone is one controlled batched-only rerun after restarting the rebuilt server and confirming the versioned diagnostics contract in the API response.
 
 ## Completed
 
@@ -53,11 +53,15 @@ Cost Experiment A is implemented and technically verified as the isolated `disco
 - The first Chuquicamata batched quality result was not judgeable because all four returned candidate ids were downgraded to `insufficient` by validation.
 - Batched citation validation was fixed and pushed as `86bf1ca`. The old validator flattened citation annotations into a global raw-URL map, discarded citation spans, and required exact URL-string equality that the generation schema did not guarantee. The fix maps citations to the candidate JSON object containing their annotation span, compares only safe canonical equivalents, and preserves strict per-candidate source ownership.
 - Safe batched validation issues now record candidate id, question id, category, and a fixed non-sensitive message in eval/debug output. No raw response, reasoning, prompt, stack, or secret is exposed.
+- Second cold Chuquicamata batched run: four candidates were researched in one Terra call; all four became invalid/insufficient. Batch research cost was `$0.087865`, total cost was `$0.2840725`, and total latency was `134209 ms`.
+- The second run's actual API result omitted `validation_issues` from both batch inspection and metrics. Current source has no stripping serializer and attaches those fields before returning; the local `pnpm start` command loads the built backend bundle once while the running backend serves rebuilt frontend assets from disk. The observed mixed shape therefore came from a pre-patch backend process serving a newer frontend bundle.
+- End-to-end validation observability and successful-result compatibility were fixed and pushed as `670805a`. Completed batched jobs normalize a versioned safe diagnostics contract before storage, the real status-response builder preserves it through JSON serialization, older invalid results receive an explicit `unknown` safe reason, and `/discovery-lab` treats missing diagnostic arrays as empty instead of throwing.
+- No citation validator rule was changed in `670805a`. Because the stale result retained neither safe failure categories nor raw provider data, the actual validation cause for the second paid run remains unresolved rather than guessed.
 
 ## In Progress
 
 - No implementation work is currently in progress.
-- A same-image Chuquicamata batched-only rerun is pending. The existing baseline V1 result must be reused rather than rerun.
+- One same-image Chuquicamata batched-only rerun is pending after a full server restart. Confirm `validation_diagnostics_version: "batched-candidate-validation-v1"` before trusting the result; reuse the existing baseline V1 result rather than rerunning it.
 
 ## Verification
 
@@ -105,10 +109,14 @@ Latest verified on 2026-08-11:
 - Batched validation fix tests: 85/85 total repository tests passed, including 25 focused batched cases covering all-valid, mixed valid/invalid, all-insufficient, malformed and uncited sources, provider tracking normalization, unknown/mismatched/duplicate ids, missing candidates, candidate-local citation spans, safe eval diagnostics, baseline behavior, cache identity, failure diagnostics, and legacy routing.
 - Batched validation fix full build: passed for the API server, Noesis frontend, and mockup sandbox; the existing non-fatal Vite tooltip sourcemap warning remains.
 - Batched validation fix safety review: strict URL, cited-evidence, referential-integrity, sibling-isolation, source-ownership, and safe-output checks remain. No paid model call was made.
+- Batched diagnostics observability typecheck: passed across all workspace projects.
+- Batched diagnostics observability tests: 87/87 total repository tests passed, including 27 focused batched cases and a mocked pipeline → persisted job → real API payload JSON path. Coverage includes exact safe validation reasons, mixed sibling isolation, candidate-local citations, tracked-URL canonicalization, unknown/mismatched/duplicate/missing candidates, legacy missing-diagnostics compatibility, eval safety, cache isolation, and legacy routing.
+- Batched diagnostics observability full build: passed for the API server, Noesis frontend, and mockup sandbox; the existing non-fatal Vite tooltip sourcemap warning remains.
+- Manual mocked API-shape inspection visibly contained `validation_diagnostics_version`, `candidate_id`, `question_id`, `validation_category`, and `safe_message` in both `inspection.research_batch` and `metrics.stage2.batch`. Secret-pattern and staged-diff checks passed. No paid model call was made.
 
 ## Latest Stable Commit
 
-`86bf1ca` — strict candidate-scoped batched citation validation fix.
+`670805a` — versioned end-to-end batched validation diagnostics and legacy-shape UI compatibility.
 
 ## Important Decisions
 
@@ -133,6 +141,7 @@ Latest verified on 2026-08-11:
 - Cost Experiment A is opt-in and isolated by API variant, UI selector, engine version, and cache identity. It preserves the existing Stage 1, conditional identity verification, Stage 3 synthesis, model allocation, and medium reasoning levels.
 - Batched Stage 2 sends only compact deterministic context for candidates that already passed the existing research gate. Missing or invalid individual results degrade only that candidate to `insufficient`; unknown ids, mismatched question ids, duplicate results, or malformed envelopes fail with scoped diagnostics.
 - Batch source validation uses the Responses API citation annotations, including their output-text spans, rather than treating all citations as a global pool. A source can validate only the candidate object containing that citation; known provider `utm_source=chatgpt.com` decoration is normalized without accepting unrelated URLs.
+- Local production backend changes require a process restart: `pnpm start` loads `artifacts/api-server/dist/index.mjs` once, while the same process can serve newly rebuilt frontend assets from disk. The `validation_diagnostics_version` marker must be present before a paid diagnostic rerun is trusted.
 
 ## Known Issues / Risks
 
@@ -149,8 +158,8 @@ Latest verified on 2026-08-11:
 - V1 identity verification is limited to one operation and one verified hypothesis per run; multiple genuinely distinct identities in one image remain outside this first implementation.
 - The three current real-world V1 samples are useful but limited; Minard is memorization-prone, and broader quality judgment remains human-led.
 - Pantheon demonstrated a source-entailment risk: reproduction or use by a modern source does not prove provenance of the underlying visual.
-- Chuquicamata established promising cost/latency evidence for batching, but the first batched run cannot be used for quality comparison because the validation mismatch rejected every candidate. Quality remains pending the single batched-only rerun.
+- Chuquicamata established promising cost/latency evidence for batching, but neither batched run is usable for quality comparison. The second run still rejected all four candidates and its stale backend response omitted the safe failure reasons, so the actual remaining validation failure is unresolved pending one controlled, correctly restarted batched-only run.
 
 ## Next Step
 
-Rerun only `discovery-engine-v1-batched-research` on the exact same Chuquicamata image, then compare it with the already-recorded baseline `discovery-engine-v1` result. Do not rerun the baseline and do not optimize further before reviewing the batched result.
+Fully restart the rebuilt local server, confirm a mocked/status response includes `validation_diagnostics_version: "batched-candidate-validation-v1"`, then run `discovery-engine-v1-batched-research` once on the exact same Chuquicamata image. Use that one controlled result to capture the real safe candidate-level failure cause and compare against the already-recorded baseline; do not rerun the baseline or optimize further first.

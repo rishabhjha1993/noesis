@@ -6,7 +6,7 @@
 
 ## Current Product State
 
-The legacy Noesis experience works as a standalone full-stack Node service. The React upload/result UI, Express API, asynchronous analysis jobs and polling, deterministic evidence computation, OpenAI analysis pipeline, cache support, and evaluation infrastructure are preserved. Platform-independent production serving, minimum public-safety controls, instrumentation, and evaluation infrastructure are checkpointed in Git and deployed.
+The legacy Noesis experience works as a standalone full-stack Node service. The React upload/result UI, Express API, asynchronous analysis jobs and polling, deterministic evidence computation, OpenAI analysis pipeline, cache support, and evaluation infrastructure are preserved. Platform-independent production serving, minimum public-safety controls, instrumentation, and evaluation infrastructure are checkpointed in Git and deployed. Discovery Engine V0 now exists as a parallel, experimental branch path at `/discovery-lab`; it is committed and pushed but has not been deployed or qualitatively evaluated yet.
 
 ## Live Deployment
 
@@ -21,7 +21,7 @@ The legacy Noesis experience works as a standalone full-stack Node service. The 
 
 ## Current Milestone
 
-The recoverable pre-Discovery-V0 baseline is complete. Discovery Engine V0 is the next engineering milestone and has not started.
+Discovery Engine V0 is implemented and technically verified. The next milestone is qualitative intelligence evaluation on diverse real visuals.
 
 ## Completed
 
@@ -32,11 +32,15 @@ The recoverable pre-Discovery-V0 baseline is complete. Discovery Engine V0 is th
 - Upload and rate limits, concurrency preservation, sanitized errors, security headers, restrictive production CORS, and optional access gate.
 - Railway deployment and live production verification.
 - Pre-Discovery-V0 product shell, deployment, instrumentation, and evaluation baseline committed and pushed as `c716df0`.
+- Discovery Engine V0 committed and pushed as `4f15645`.
+- Parallel `/api/discovery` job path and direct-only `/discovery-lab` evaluation UI.
+- Strict Stage 1, research-gate, research-result, Stage 3, region-reference, candidate-reference, and source-provenance validation.
+- Focused Discovery V0 fixtures and mocked model-call tests requiring no paid API calls.
 
 ## In Progress
 
 - No implementation work is currently in progress.
-- Discovery Engine V0 has not started.
+- Discovery V0 awaits its first qualitative intelligence evaluation; V1 has not started.
 
 ## Verification
 
@@ -51,10 +55,15 @@ Latest verified on 2026-08-10:
 - Staged scope, ignored-file, large-file, and secret scans passed before the product checkpoint was committed.
 - Production: Railway deployment successful; health, root, SPA, API validation, polling validation, assets, and browser rendering passed.
 - Paid production smoke call: not run during deployment verification.
+- Discovery V0 typecheck: passed across all workspace projects.
+- Discovery V0 tests: 26/26 total repository tests passed, including 14 focused V0 contract, gate, source, route, and cache tests.
+- Discovery V0 full build: passed for the API server, Noesis frontend, and mockup sandbox; the existing non-fatal Vite sourcemap warning remains.
+- Discovery V0 local runtime: `/`, `/discovery-lab`, built assets, image selection, invalid Discovery requests, missing Discovery jobs, and legacy invalid-request behavior passed; browser console was clean.
+- Discovery V0 paid model call: not run. Model-backed intelligence quality and real web-search output remain intentionally unevaluated until the qualitative eval.
 
 ## Latest Stable Commit
 
-`c716df0` — Verified pre-Discovery-V0 product shell, standalone deployment, instrumentation, and evaluation baseline.
+`4f15645` — Discovery Engine V0 parallel implementation and technical verification checkpoint.
 
 ## Important Decisions
 
@@ -64,15 +73,23 @@ Latest verified on 2026-08-10:
 - `NOESIS_ACCESS_CODE` is optional. Without it, production remains public but analysis starts are rate-limited.
 - Existing prompts, model allocation, reasoning levels, token limits, schemas, and legacy analysis behavior remain unchanged.
 - Discovery quality must remain visually triggered and return the user to the uploaded image.
+- Discovery V0 has exactly three conceptual stages: Sol vision grounding/question formation, selectively gated Terra web research, and text-only Sol discovery synthesis.
+- All three V0 stages use medium reasoning. Stage 2 receives only Stage 1-approved text questions and never receives the image.
+- Discovery V0 uses the independent `discovery-engine-v0` in-memory cache identity and cannot read or write legacy analysis cache entries.
+- `/discovery-lab` remains outside normal public navigation and does not replace `/`.
 
 ## Known Issues / Risks
 
 - The current single-instance rate limiter and job registry are in memory; horizontal scaling would require shared durable state.
 - Persistent cache is unavailable until a Postgres `DATABASE_URL` is configured.
 - The optional access gate is not enabled on the public deployment.
-- `/discovery-lab` intentionally remains unimplemented and returns the pre-V0 not-found state.
+- The Railway deployment still runs the pre-V0 source checkpoint, so its `/discovery-lab` route remains unavailable until an explicit V0 deployment.
 - No paid model call was made during this checkpoint verification; the existing recorded cold baseline remains the latest paid evaluation evidence.
+- Discovery V0 cache and jobs are process-local; cached metrics describe the original cold run, while the polling response separately reports cache hit or miss.
+- V0 Stage 3 currently receives an explicit empty deterministic-calculations list. Reusing legacy calculations would require an additional legacy evidence-extraction call, which would violate V0's three-stage constraint.
+- Discovery cost instrumentation uses the existing token-pricing convention and does not add separately metered web-search tool fees, if applicable.
+- Failed Discovery jobs return a sanitized error and are logged, but partial per-stage metrics are not returned to the lab UI.
 
 ## Next Step
 
-Begin Discovery Engine V0 using its separately specified contracts, schemas, visual-trigger and research-gate structures, strict validation, and focused unit tests while preserving the legacy `/` experience.
+Run the first qualitative Noesis intelligence evaluation through Discovery V0 using diverse real visuals. Inspect whether Stage 1 noticed the important feature, whether research stayed visually grounded, whether synthesis retained the strongest finding, and whether every final discovery returns attention to the image. Stop after recording the initial outputs for human review; do not implement V1 or tune the architecture automatically.

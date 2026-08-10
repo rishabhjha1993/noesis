@@ -6,7 +6,7 @@
 
 ## Current Product State
 
-The legacy Noesis experience works as a standalone full-stack Node service. The React upload/result UI, Express API, asynchronous analysis jobs and polling, deterministic evidence computation, OpenAI analysis pipeline, cache support, and evaluation infrastructure are preserved. Platform-independent production serving and minimum public-safety controls have been added locally.
+The legacy Noesis experience works as a standalone full-stack Node service. The React upload/result UI, Express API, asynchronous analysis jobs and polling, deterministic evidence computation, OpenAI analysis pipeline, cache support, and evaluation infrastructure are preserved. Platform-independent production serving, minimum public-safety controls, instrumentation, and evaluation infrastructure are checkpointed in Git and deployed.
 
 ## Live Deployment
 
@@ -14,13 +14,14 @@ The legacy Noesis experience works as a standalone full-stack Node service. The 
 - URL: https://noesis-production-b3c2.up.railway.app/
 - Last verified: 2026-08-10
 - State: successful deployment, one running production instance
+- Source baseline checkpoint: `c716df0`
 - Smoke checks: `/`, `/api/healthz`, SPA fallback, invalid analysis input, missing polling job, frontend assets, and upload UI passed
 - Persistent Postgres cache: disabled because `DATABASE_URL` is not configured
 - Access gate: implemented but disabled because `NOESIS_ACCESS_CODE` is not configured
 
 ## Current Milestone
 
-Establish durable project memory and create a recoverable pre-Discovery V0 checkpoint.
+The recoverable pre-Discovery-V0 baseline is complete. Discovery Engine V0 is the next engineering milestone and has not started.
 
 ## Completed
 
@@ -30,11 +31,12 @@ Establish durable project memory and create a recoverable pre-Discovery V0 check
 - Same-process frontend/API production serving with SPA fallback.
 - Upload and rate limits, concurrency preservation, sanitized errors, security headers, restrictive production CORS, and optional access gate.
 - Railway deployment and live production verification.
+- Pre-Discovery-V0 product shell, deployment, instrumentation, and evaluation baseline committed and pushed as `c716df0`.
 
 ## In Progress
 
-- Checkpoint the currently verified standalone deployment and instrumentation changes. They remain present in the local working tree but are not yet represented by a pushed product commit.
-- Discovery V0 has not started.
+- No implementation work is currently in progress.
+- Discovery Engine V0 has not started.
 
 ## Verification
 
@@ -43,12 +45,16 @@ Latest verified on 2026-08-10:
 - Typecheck: passed across all workspace projects.
 - Tests: 12/12 passed.
 - Full build: passed; one existing non-fatal Vite sourcemap warning remains.
+- Local production server: `/api/healthz`, root HTML, SPA fallback, invalid analysis input, and missing polling job checks passed.
+- Browser: `/` rendered the preserved legacy upload UI; `/discovery-lab` rendered the expected pre-V0 `404 - Not Found` state.
+- Evaluation plumbing: the existing three-fixture baseline summary was regenerated successfully without making a paid model call.
+- Staged scope, ignored-file, large-file, and secret scans passed before the product checkpoint was committed.
 - Production: Railway deployment successful; health, root, SPA, API validation, polling validation, assets, and browser rendering passed.
 - Paid production smoke call: not run during deployment verification.
 
 ## Latest Stable Commit
 
-`398ca6a` — Checkpoint 0, persistent Noesis operating contract and progress context. The verified deployment and evaluation changes still exist in the local working tree and require their own focused product checkpoint.
+`c716df0` — Verified pre-Discovery-V0 product shell, standalone deployment, instrumentation, and evaluation baseline.
 
 ## Important Decisions
 
@@ -61,11 +67,12 @@ Latest verified on 2026-08-10:
 
 ## Known Issues / Risks
 
-- The deployed source snapshot is not yet backed by a corresponding Git commit.
 - The current single-instance rate limiter and job registry are in memory; horizontal scaling would require shared durable state.
 - Persistent cache is unavailable until a Postgres `DATABASE_URL` is configured.
 - The optional access gate is not enabled on the public deployment.
+- `/discovery-lab` intentionally remains unimplemented and returns the pre-V0 not-found state.
+- No paid model call was made during this checkpoint verification; the existing recorded cold baseline remains the latest paid evaluation evidence.
 
 ## Next Step
 
-Create and push a focused, verified checkpoint for the existing instrumentation and standalone Railway product-shell changes before implementing Discovery V0.
+Begin Discovery Engine V0 using its separately specified contracts, schemas, visual-trigger and research-gate structures, strict validation, and focused unit tests while preserving the legacy `/` experience.

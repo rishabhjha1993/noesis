@@ -1,5 +1,13 @@
-import { useState, useRef, useEffect, type DragEvent, type ChangeEvent } from 'react';
-import { UploadCloud, X } from 'lucide-react';
+import {
+  useState,
+  useRef,
+  useEffect,
+  type DragEvent,
+  type ChangeEvent,
+} from "react";
+import { UploadCloud, X } from "lucide-react";
+
+const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 
 export function UploadScreen({ onUpload }: { onUpload: (file: File) => void }) {
   const [isDragging, setIsDragging] = useState(false);
@@ -33,6 +41,10 @@ export function UploadScreen({ onUpload }: { onUpload: (file: File) => void }) {
       setError("Please upload a valid image file (PNG, JPG, WebP).");
       return;
     }
+    if (file.size > MAX_IMAGE_BYTES) {
+      setError("Please choose an image smaller than 12 MB.");
+      return;
+    }
     setError(null);
     setSelectedFile(file);
   };
@@ -54,7 +66,9 @@ export function UploadScreen({ onUpload }: { onUpload: (file: File) => void }) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-6 min-h-screen">
       <div className="max-w-xl w-full flex flex-col items-center">
-        <h1 className="text-4xl md:text-5xl font-mono tracking-widest text-primary mb-3 font-bold">NOESIS</h1>
+        <h1 className="text-4xl md:text-5xl font-mono tracking-widest text-primary mb-3 font-bold">
+          NOESIS
+        </h1>
         <p className="text-muted-foreground text-lg mb-10 font-light tracking-wide text-center">
           Understand complex visuals, step by step.
         </p>
@@ -62,7 +76,7 @@ export function UploadScreen({ onUpload }: { onUpload: (file: File) => void }) {
         {!selectedFile ? (
           <div
             className={`w-full p-12 border-2 border-dashed rounded-xl transition-all duration-300 flex flex-col items-center justify-center text-center
-              ${isDragging ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/50'}`}
+              ${isDragging ? "border-primary bg-primary/5" : "border-border bg-card hover:border-primary/50"}`}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
@@ -70,19 +84,22 @@ export function UploadScreen({ onUpload }: { onUpload: (file: File) => void }) {
             <div className="h-16 w-16 bg-muted rounded-full flex items-center justify-center mb-6">
               <UploadCloud className="text-primary/70 h-8 w-8" />
             </div>
-            <h3 className="text-xl font-medium mb-2 font-serif">Upload your diagram</h3>
+            <h3 className="text-xl font-medium mb-2 font-serif">
+              Upload your diagram
+            </h3>
             <p className="text-muted-foreground mb-8 max-w-sm">
-              Drag and drop an image here, or click to browse. We support PNG, JPG, and WebP.
+              Drag and drop an image here, or click to browse. We support PNG,
+              JPG, and WebP.
             </p>
-            
-            <input 
-              type="file" 
+
+            <input
+              type="file"
               ref={fileInputRef}
-              className="hidden" 
+              className="hidden"
               accept="image/png, image/jpeg, image/jpg, image/webp"
               onChange={handleFileChange}
             />
-            <button 
+            <button
               onClick={() => fileInputRef.current?.click()}
               className="bg-card text-foreground border border-border px-8 py-3 rounded-md font-medium tracking-wide hover:bg-muted transition-colors shadow-sm"
             >
@@ -93,13 +110,13 @@ export function UploadScreen({ onUpload }: { onUpload: (file: File) => void }) {
           <div className="w-full flex flex-col items-center animate-in fade-in duration-500">
             <div className="relative w-full aspect-[4/3] mb-8 bg-card rounded-xl overflow-hidden border border-border shadow-sm p-4">
               {previewUrl && (
-                <img 
-                  src={previewUrl} 
-                  alt="Preview" 
+                <img
+                  src={previewUrl}
+                  alt="Preview"
                   className="w-full h-full object-contain"
                 />
               )}
-              <button 
+              <button
                 onClick={() => setSelectedFile(null)}
                 className="absolute top-4 right-4 h-8 w-8 bg-background/80 backdrop-blur rounded-full flex items-center justify-center hover:bg-background transition-colors border border-border shadow-sm text-muted-foreground hover:text-foreground"
                 aria-label="Remove image"
@@ -107,7 +124,7 @@ export function UploadScreen({ onUpload }: { onUpload: (file: File) => void }) {
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <button 
+            <button
               onClick={() => onUpload(selectedFile)}
               className="bg-primary text-primary-foreground px-10 py-4 rounded-lg font-medium text-lg tracking-wide hover:bg-primary/90 transition-colors shadow-md w-full md:w-auto"
             >

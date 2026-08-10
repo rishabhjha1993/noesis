@@ -1,6 +1,11 @@
 import { Router, type IRouter } from "express";
 import { AnalyzeImageBody } from "@workspace/api-zod";
 import { startAnalysisJob, getAnalysisJob } from "../lib/analysisJobs";
+import {
+  analysisRateLimit,
+  decodedImageBytes,
+  MAX_IMAGE_BYTES,
+} from "../lib/requestSafety";
 
 const router: IRouter = Router();
 
@@ -9,7 +14,7 @@ const router: IRouter = Router();
 // the client polls GET /analyze/:analysisId for the result.
 //
 // Cache hits (same image previously analyzed) complete in milliseconds.
-router.post("/analyze", (req, res) => {
+router.post("/analyze", analysisRateLimit, (req, res) => {
   const parsedBody = AnalyzeImageBody.safeParse(req.body);
   if (!parsedBody.success) {
     res.status(400).json({ error: "image_data_url is required" });
@@ -18,7 +23,21 @@ router.post("/analyze", (req, res) => {
   const { image_data_url } = parsedBody.data;
   if (!/^data:image\/(png|jpeg|jpg|webp|gif);base64,/.test(image_data_url)) {
     res.status(400).json({
-      error: "image_data_url must be a base64 data URL for a PNG, JPEG, WebP, or GIF image",
+      error:
+        "image_data_url must be a base64 data URL for a PNG, JPEG, WebP, or GIF image",
+    });
+    return;
+  }
+  const imageBytes = decodedImageBytes(image_data_url);
+  if (imageBytes === null) {
+    res
+      .status(400)
+      .json({ error: "image_data_url contains invalid base64 data" });
+    return;
+  }
+  if (imageBytes > MAX_IMAGE_BYTES) {
+    res.status(413).json({
+      error: "Image is too large. The maximum decoded image size is 12 MB.",
     });
     return;
   }

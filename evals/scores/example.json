@@ -1,0 +1,14 @@
+{
+  "us-energy-sankey-2023": {
+    "factual_grounding": 5,
+    "numerical_accuracy": 5,
+    "insight_value": 4,
+    "comparative_structural_reasoning": 4,
+    "spatial_grounding": 4,
+    "walkthrough_quality": 4,
+    "redundancy": 4,
+    "big_takeaway_quality": 4,
+    "so_what_explanatory_depth": 4,
+    "notes": "Replace these example values with a human review of a specific run."
+  }
+}

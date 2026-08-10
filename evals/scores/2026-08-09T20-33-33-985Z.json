@@ -1,0 +1,38 @@
+{
+  "us-energy-sankey-2023": {
+    "factual_grounding": null,
+    "numerical_accuracy": null,
+    "insight_value": null,
+    "comparative_structural_reasoning": null,
+    "spatial_grounding": null,
+    "walkthrough_quality": null,
+    "redundancy": null,
+    "big_takeaway_quality": null,
+    "so_what_explanatory_depth": null,
+    "notes": "Pending human review."
+  },
+  "cern-network-map": {
+    "factual_grounding": null,
+    "numerical_accuracy": null,
+    "insight_value": null,
+    "comparative_structural_reasoning": null,
+    "spatial_grounding": null,
+    "walkthrough_quality": null,
+    "redundancy": null,
+    "big_takeaway_quality": null,
+    "so_what_explanatory_depth": null,
+    "notes": "Pending human review."
+  },
+  "test-visual": {
+    "factual_grounding": null,
+    "numerical_accuracy": null,
+    "insight_value": null,
+    "comparative_structural_reasoning": null,
+    "spatial_grounding": null,
+    "walkthrough_quality": null,
+    "redundancy": null,
+    "big_takeaway_quality": null,
+    "so_what_explanatory_depth": null,
+    "notes": "Pending human review."
+  }
+}

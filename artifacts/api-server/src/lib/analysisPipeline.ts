@@ -7,6 +7,15 @@ import {
   type ComputedEvidence,
 } from "./evidence";
 import { computeEvidence } from "./computations";
+import {
+  emptyModelUsage,
+  evidenceMetrics,
+  imageDimensions,
+  normalizeChatUsage,
+  type FailureStage,
+  type PipelineMetrics,
+} from "./analysisMetrics";
+import { estimatePipelineCost } from "./modelPricing";
 
 /**
  * Two-pass evidence-first analysis pipeline (server-side only).
@@ -19,7 +28,7 @@ import { computeEvidence } from "./computations";
  * Exactly two model calls; intermediates are never exposed to the client.
  */
 
-const MODEL = "gpt-5.6-sol";
+export const ANALYSIS_MODEL = "gpt-5.6-sol";
 
 const PASS1_PROMPT = `You are the evidence-extraction layer for Noesis.
 
@@ -312,13 +321,59 @@ function clamp01(n: number): number {
   return Math.min(1, Math.max(0, n));
 }
 
-export async function runAnalysisPipeline(
+export interface AnalysisPipelineResult {
+  analysis: NoesisAnalysisResult;
+  visualEvidence: VisualEvidence;
+  computedEvidence: ComputedEvidence[];
+  metrics: PipelineMetrics;
+}
+
+export class AnalysisPipelineError extends Error {
+  constructor(message: string, public readonly metrics: PipelineMetrics, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "AnalysisPipelineError";
+  }
+}
+
+export async function runAnalysisPipelineDetailed(
   openai: OpenAI,
   imageDataUrl: string,
-): Promise<NoesisAnalysisResult> {
+): Promise<AnalysisPipelineResult> {
+  const started = Date.now();
+  const timestamp = new Date().toISOString();
+  let failureStage: FailureStage = "pass1_model";
+  let pass1Usage = emptyModelUsage(ANALYSIS_MODEL, "low");
+  let pass2Usage = emptyModelUsage(ANALYSIS_MODEL, "high");
+  let pass1ParseMs: number | null = null;
+  let computeMs: number | null = null;
+  let pass2ParseMs: number | null = null;
+  let evidence: VisualEvidence | null = null;
+  let computed: ComputedEvidence[] | null = null;
+  let finalRegions = 0;
+  let activeModelStarted = started;
+  let activeStageStarted = started;
+
+  const metrics = (success: boolean): PipelineMetrics => ({
+    timestamp,
+    success,
+    failure_stage: success ? null : failureStage,
+    pass1: pass1Usage,
+    pass1_parse_latency_ms: pass1ParseMs,
+    deterministic_compute_latency_ms: computeMs,
+    pass2: pass2Usage,
+    pass2_parse_latency_ms: pass2ParseMs,
+    total_pipeline_latency_ms: Date.now() - started,
+    image_dimensions: imageDimensions(imageDataUrl),
+    evidence: evidenceMetrics(evidence, computed, finalRegions),
+    estimated_cost: estimatePipelineCost(pass1Usage, pass2Usage),
+  });
+
+  try {
   // ---- Pass 1: visual evidence extraction (low reasoning, strict schema)
+  const pass1Started = Date.now();
+  activeModelStarted = pass1Started;
   const pass1 = await openai.chat.completions.create({
-    model: MODEL,
+    model: ANALYSIS_MODEL,
     reasoning_effort: "low",
     max_completion_tokens: 8000,
     response_format: {
@@ -343,19 +398,31 @@ export async function runAnalysisPipeline(
       },
     ],
   });
+  pass1Usage = normalizeChatUsage(pass1, "low", Date.now() - pass1Started);
 
+  failureStage = "pass1_parse";
+  const pass1ParseStarted = Date.now();
+  activeStageStarted = pass1ParseStarted;
   const rawEvidence = pass1.choices[0]?.message?.content;
   if (!rawEvidence) {
     throw new Error("Pass 1 returned an empty response");
   }
-  const evidence = VisualEvidence.parse(JSON.parse(rawEvidence));
+  evidence = VisualEvidence.parse(JSON.parse(rawEvidence));
+  pass1ParseMs = Date.now() - pass1ParseStarted;
 
   // ---- Deterministic numeric analysis (pure code, no model call)
-  const computed: ComputedEvidence[] = computeEvidence(evidence);
+  failureStage = "deterministic_compute";
+  const computeStarted = Date.now();
+  activeStageStarted = computeStarted;
+  computed = computeEvidence(evidence);
+  computeMs = Date.now() - computeStarted;
 
   // ---- Pass 2: insight generation + self-critique (high reasoning)
+  failureStage = "pass2_model";
+  const pass2Started = Date.now();
+  activeModelStarted = pass2Started;
   const pass2 = await openai.chat.completions.create({
-    model: MODEL,
+    model: ANALYSIS_MODEL,
     reasoning_effort: "high",
     // High reasoning tokens count against this budget; leave ample headroom
     // so the final JSON is never truncated by internal reasoning.
@@ -383,7 +450,11 @@ export async function runAnalysisPipeline(
       },
     ],
   });
+  pass2Usage = normalizeChatUsage(pass2, "high", Date.now() - pass2Started);
 
+  failureStage = "pass2_parse";
+  const pass2ParseStarted = Date.now();
+  activeStageStarted = pass2ParseStarted;
   const raw = pass2.choices[0]?.message?.content;
   if (!raw) {
     throw new Error(
@@ -418,5 +489,36 @@ export async function runAnalysisPipeline(
   if (analysis.regions.length === 0) {
     throw new Error("Pass 2 returned no regions");
   }
-  return analysis;
+  finalRegions = analysis.regions.length;
+  pass2ParseMs = Date.now() - pass2ParseStarted;
+  return { analysis, visualEvidence: evidence, computedEvidence: computed, metrics: metrics(true) };
+  } catch (cause) {
+    if (failureStage === "pass1_model" && pass1Usage.latency_ms === 0) {
+      pass1Usage = { ...pass1Usage, latency_ms: Date.now() - activeModelStarted };
+    }
+    if (failureStage === "pass2_model" && pass2Usage.latency_ms === 0) {
+      pass2Usage = { ...pass2Usage, latency_ms: Date.now() - activeModelStarted };
+    }
+    if (failureStage === "pass1_parse" && pass1ParseMs === null) {
+      pass1ParseMs = Date.now() - activeStageStarted;
+    }
+    if (failureStage === "deterministic_compute" && computeMs === null) {
+      computeMs = Date.now() - activeStageStarted;
+    }
+    if (failureStage === "pass2_parse" && pass2ParseMs === null) {
+      pass2ParseMs = Date.now() - activeStageStarted;
+    }
+    throw new AnalysisPipelineError(
+      cause instanceof Error ? cause.message : "Analysis pipeline failed",
+      metrics(false),
+      { cause },
+    );
+  }
+}
+
+export async function runAnalysisPipeline(
+  openai: OpenAI,
+  imageDataUrl: string,
+): Promise<NoesisAnalysisResult> {
+  return (await runAnalysisPipelineDetailed(openai, imageDataUrl)).analysis;
 }

@@ -51,7 +51,7 @@ export interface Discovery {
   sources: DiscoverySource[];
 }
 
-interface UsageMetrics {
+export interface DiscoveryUsageMetrics {
   model: string;
   reasoning_effort: string;
   input_tokens: number | null;
@@ -60,6 +60,18 @@ interface UsageMetrics {
   reasoning_tokens: number | null;
   total_tokens: number | null;
   latency_ms: number;
+}
+
+export interface DiscoveryStageMetrics {
+  usage: DiscoveryUsageMetrics;
+  cost_usd: number | null;
+  cost_reason: string | null;
+}
+
+export interface DiscoveryResearchCallMetrics extends DiscoveryStageMetrics {
+  candidate_id: string;
+  question_id: string;
+  status: "answered" | "insufficient";
 }
 
 export interface DiscoveryRunResult {
@@ -79,18 +91,17 @@ export interface DiscoveryRunResult {
     timestamp: string;
     engine_version: string;
     success: boolean;
-    stage1: { usage: UsageMetrics; cost_usd: number | null };
+    stage1: DiscoveryStageMetrics;
     stage2: {
       model: string;
       reasoning_effort: string;
       questions_sent: number;
       latency_ms: number;
-      usage: UsageMetrics;
+      usage: DiscoveryUsageMetrics;
       cost_usd: number | null;
+      calls: DiscoveryResearchCallMetrics[];
     };
-    stage3: {
-      usage: UsageMetrics;
-      cost_usd: number | null;
+    stage3: DiscoveryStageMetrics & {
       discoveries_returned: number;
     };
     total_latency_ms: number;

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
+  Check,
+  Copy,
   ExternalLink,
   FlaskConical,
   RotateCcw,
@@ -11,6 +13,7 @@ import {
   type Discovery,
   type DiscoveryRunResult,
 } from "@workspace/api-client-react";
+import { serializeDiscoveryEvalPayload } from "../lib/discoveryEval";
 
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const POLL_INTERVAL_MS = 2500;
@@ -114,7 +117,11 @@ export function DiscoveryLab() {
   );
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<DiscoveryRunResult | null>(null);
+  const [discoveryId, setDiscoveryId] = useState<string | null>(null);
   const [cacheHit, setCacheHit] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">(
+    "idle",
+  );
   const [selectedIndex, setSelectedIndex] = useState(0);
   const requestSequence = useRef(0);
 
@@ -154,7 +161,9 @@ export function DiscoveryLab() {
     requestSequence.current += 1;
     setFile(next);
     setResult(null);
+    setDiscoveryId(null);
     setCacheHit(false);
+    setCopyStatus("idle");
     setSelectedIndex(0);
     setError(null);
     setStatus("upload");
@@ -168,6 +177,7 @@ export function DiscoveryLab() {
     try {
       const dataUrl = await fileToDataUrl(file);
       const discoveryId = await startDiscoveryV0(dataUrl);
+      setDiscoveryId(discoveryId);
       const deadline = Date.now() + POLL_TIMEOUT_MS;
       for (;;) {
         await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
@@ -198,10 +208,28 @@ export function DiscoveryLab() {
     requestSequence.current += 1;
     setFile(null);
     setResult(null);
+    setDiscoveryId(null);
     setCacheHit(false);
+    setCopyStatus("idle");
     setSelectedIndex(0);
     setError(null);
     setStatus("upload");
+  };
+
+  const copyFullEvalJson = async () => {
+    if (!result || !discoveryId) return;
+    try {
+      const serialized = serializeDiscoveryEvalPayload({
+        result,
+        discoveryId,
+        cacheHit,
+      });
+      JSON.parse(serialized);
+      await navigator.clipboard.writeText(serialized);
+      setCopyStatus("copied");
+    } catch {
+      setCopyStatus("error");
+    }
   };
 
   if (status === "done" && result && imageUrl) {
@@ -358,6 +386,25 @@ export function DiscoveryLab() {
                 Developer / eval inspection
               </summary>
               <div className="mt-4 space-y-4 text-muted-foreground">
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => void copyFullEvalJson()}
+                    className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs font-medium text-foreground hover:bg-muted"
+                  >
+                    {copyStatus === "copied" ? (
+                      <Check className="h-3.5 w-3.5" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                    Copy full eval JSON
+                  </button>
+                  <span className="text-xs" aria-live="polite">
+                    {copyStatus === "copied" && "Copied"}
+                    {copyStatus === "error" &&
+                      "Could not copy. Check clipboard permissions."}
+                  </span>
+                </div>
                 <p>{result.inspection.stage1.image_summary}</p>
                 {(selectedCandidates ?? []).map((candidate) => {
                   const research = result.inspection.research_results.find(

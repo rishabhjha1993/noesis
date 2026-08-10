@@ -10,7 +10,9 @@ import { UploadScreen } from './components/UploadScreen';
 import { LoadingScreen } from './components/LoadingScreen';
 import { ResultScreen } from './components/ResultScreen';
 import { ErrorScreen } from './components/ErrorScreen';
+import { DiscoveryLab } from './components/DiscoveryLab';
 import { type NoesisAnalysis, type NoesisScreen } from './lib/types';
+import { DISCOVERY_LAB_PATH, LEGACY_APP_PATH } from './lib/appRoutes';
 
 const queryClient = new QueryClient();
 
@@ -164,7 +166,8 @@ export default function App() {
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
           <RoutedErrorBoundary>
             <Switch>
-              <Route path="/" component={NoesisApp} />
+              <Route path={LEGACY_APP_PATH} component={NoesisApp} />
+              <Route path={DISCOVERY_LAB_PATH} component={DiscoveryLab} />
               <Route>
                 <div className="flex h-screen items-center justify-center bg-background text-foreground">
                   404 - Not Found

@@ -1,0 +1,452 @@
+import OpenAI from "openai";
+import type { ChatCompletion } from "openai/resources/chat/completions";
+import type { Response } from "openai/resources/responses/responses";
+import {
+  DISCOVERY_STAGE1_JSON_SCHEMA,
+  DISCOVERY_STAGE3_JSON_SCHEMA,
+  DiscoveryStage1Schema,
+  evaluateResearchGate,
+  validateDiscoveryOutput,
+  validateResearchResults,
+  type Discovery,
+  type DiscoveryInspection,
+  type DiscoveryRegion,
+  type DiscoveryResearchResult,
+  type DiscoverySource,
+  type DiscoveryStage1,
+} from "./discoveryContracts";
+import { estimateModelCost } from "./modelPricing";
+
+export const DISCOVERY_ENGINE_VERSION = "discovery-engine-v0";
+export const DISCOVERY_STAGE1_MODEL = "gpt-5.6-sol";
+export const DISCOVERY_STAGE2_MODEL = "gpt-5.6-terra";
+export const DISCOVERY_STAGE3_MODEL = "gpt-5.6-sol";
+export const DISCOVERY_REASONING_EFFORT = "medium";
+
+const STAGE1_PROMPT = `You are Stage 1 of Noesis Discovery Engine V0: SEE → QUESTION.
+
+Inspect the supplied image itself. Do not provide a generic description and do not use external knowledge.
+
+Find a small set of visible features, relationships, patterns, contrasts, anomalies, labels, numbers, structures, or apparent contradictions that may materially change how a careful viewer understands this specific image. Every candidate must originate in concrete visible evidence.
+
+Create highlightable regions with normalized coordinates (0-1, origin top-left). Use local regions for bounded visual features. For a genuinely whole-image trigger, create an explicit global region with x=0, y=0, width=1, height=1. Relational candidates may reference multiple regions; never create one huge box just to connect distant features.
+
+For each candidate:
+- use stable unique candidate and question ids;
+- state the exact visual trigger and grounded observation;
+- reference only declared region ids;
+- ask one specific question that could deepen interpretation of this image;
+- mark research_needed true only if external facts could materially explain, verify, surprise, reinterpret, or overturn the reading of the visible feature;
+- explain that material value in research_rationale when research is needed.
+
+Candidates may require no research. Reject broad topic questions, generic history, and trivia that could be generated from the subject alone. Do not expose chain-of-thought; return only concise structured grounding artifacts.`;
+
+const RESEARCH_INSTRUCTIONS = `You are Stage 2 of Noesis Discovery Engine V0: selectively RESEARCH.
+
+You receive one question approved by the visual Stage 1 gate. You do not receive the image and may not choose a broader topic. Use web search only to answer the supplied question as narrowly and accurately as possible. Remain tied to the supplied visual trigger and observation. Do not write a topic report or add adjacent trivia.
+
+Begin with ANSWERED: when trustworthy sources materially answer the question. Begin with INSUFFICIENT: when reliable research cannot answer it. Keep the finding concise. Cite claims using the web-search citations supplied by the API. Never invent or type source URLs yourself.`;
+
+const STAGE3_PROMPT = `You are Stage 3 of Noesis Discovery Engine V0: DISCOVER → RETURN TO IMAGE.
+
+You receive text-only structured visual grounding, approved investigation candidates, optional narrowly scoped research findings, validated source metadata, and any deterministic calculations. You do not receive the image.
+
+Act as an aggressive editor and ranker. Select only findings that genuinely cause the user to understand this image differently. Four exceptional discoveries are better than five mediocre ones; fewer than three, including zero, is valid.
+
+For every discovery enforce:
+A. VISUAL ORIGIN — identify exactly what visible evidence caused the investigation. Reject discoveries without a concrete answer.
+B. IMAGE DEPENDENCE — reject external facts that remain equally interesting without the image unless they materially explain, surprise, reinterpret, verify, or overturn the reading of something visible.
+
+Rank by accuracy, visual dependence, surprise, explanatory depth, specificity, consequential understanding, and reinterpretation. Do not summarize the inputs or pad the count.
+
+Rules:
+- candidate_ids must reference the exact Stage 1 candidates supporting the discovery.
+- region_ids must reference only Stage 1 regions and should include every region needed to return attention to the image.
+- provenance is researched only when an answered research result materially contributes.
+- researched discoveries may copy only source objects present in the supplied research results.
+- all other discoveries must have an empty sources array.
+- reinterpretation must explicitly tell the viewer what to notice or understand differently when looking back at the image.
+- explanation is concise and user-facing; never expose private chain-of-thought.
+
+Return only the strict JSON object.`;
+
+export interface DiscoveryUsageMetrics {
+  model: string;
+  reasoning_effort: string;
+  input_tokens: number | null;
+  cached_input_tokens: number | null;
+  output_tokens: number | null;
+  reasoning_tokens: number | null;
+  total_tokens: number | null;
+  latency_ms: number;
+}
+
+export interface DiscoveryStageMetrics {
+  usage: DiscoveryUsageMetrics;
+  cost_usd: number | null;
+  cost_reason: string | null;
+}
+
+export interface DiscoveryResearchCallMetrics extends DiscoveryStageMetrics {
+  candidate_id: string;
+  question_id: string;
+  status: "answered" | "insufficient";
+}
+
+export interface DiscoveryPipelineMetrics {
+  timestamp: string;
+  engine_version: string;
+  success: boolean;
+  stage1: DiscoveryStageMetrics;
+  stage2: {
+    model: string;
+    reasoning_effort: string;
+    questions_sent: number;
+    latency_ms: number;
+    usage: DiscoveryUsageMetrics;
+    cost_usd: number | null;
+    calls: DiscoveryResearchCallMetrics[];
+  };
+  stage3: DiscoveryStageMetrics & { discoveries_returned: number };
+  total_latency_ms: number;
+  total_cost_usd: number | null;
+  stage1_candidates: number;
+  research_gate_passed: number;
+  final_discoveries: number;
+}
+
+export interface DiscoveryPipelineResult {
+  version: string;
+  regions: DiscoveryRegion[];
+  discoveries: Discovery[];
+  inspection: DiscoveryInspection;
+  metrics: DiscoveryPipelineMetrics;
+}
+
+function integer(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function emptyUsage(model: string): DiscoveryUsageMetrics {
+  return {
+    model,
+    reasoning_effort: DISCOVERY_REASONING_EFFORT,
+    input_tokens: null,
+    cached_input_tokens: null,
+    output_tokens: null,
+    reasoning_tokens: null,
+    total_tokens: null,
+    latency_ms: 0,
+  };
+}
+
+function normalizeChatUsage(
+  response: ChatCompletion,
+  latencyMs: number,
+): DiscoveryUsageMetrics {
+  return {
+    model: response.model,
+    reasoning_effort: DISCOVERY_REASONING_EFFORT,
+    input_tokens: integer(response.usage?.prompt_tokens),
+    cached_input_tokens: integer(
+      response.usage?.prompt_tokens_details?.cached_tokens,
+    ),
+    output_tokens: integer(response.usage?.completion_tokens),
+    reasoning_tokens: integer(
+      response.usage?.completion_tokens_details?.reasoning_tokens,
+    ),
+    total_tokens: integer(response.usage?.total_tokens),
+    latency_ms: latencyMs,
+  };
+}
+
+function normalizeResponseUsage(
+  response: Response,
+  latencyMs: number,
+): DiscoveryUsageMetrics {
+  return {
+    model: response.model,
+    reasoning_effort: DISCOVERY_REASONING_EFFORT,
+    input_tokens: integer(response.usage?.input_tokens),
+    cached_input_tokens: integer(
+      response.usage?.input_tokens_details.cached_tokens,
+    ),
+    output_tokens: integer(response.usage?.output_tokens),
+    reasoning_tokens: integer(
+      response.usage?.output_tokens_details.reasoning_tokens,
+    ),
+    total_tokens: integer(response.usage?.total_tokens),
+    latency_ms: latencyMs,
+  };
+}
+
+function sumNullable(values: Array<number | null>): number | null {
+  return values.every((value) => value !== null)
+    ? values.reduce<number>((sum, value) => sum + (value ?? 0), 0)
+    : null;
+}
+
+function aggregateUsage(
+  model: string,
+  usages: DiscoveryUsageMetrics[],
+): DiscoveryUsageMetrics {
+  if (usages.length === 0) return emptyUsage(model);
+  return {
+    model,
+    reasoning_effort: DISCOVERY_REASONING_EFFORT,
+    input_tokens: sumNullable(usages.map((usage) => usage.input_tokens)),
+    cached_input_tokens: sumNullable(
+      usages.map((usage) => usage.cached_input_tokens),
+    ),
+    output_tokens: sumNullable(usages.map((usage) => usage.output_tokens)),
+    reasoning_tokens: sumNullable(
+      usages.map((usage) => usage.reasoning_tokens),
+    ),
+    total_tokens: sumNullable(usages.map((usage) => usage.total_tokens)),
+    latency_ms: usages.reduce((sum, usage) => sum + usage.latency_ms, 0),
+  };
+}
+
+function stageMetrics(usage: DiscoveryUsageMetrics): DiscoveryStageMetrics {
+  const cost = estimateModelCost(usage);
+  return { usage, cost_usd: cost.usd, cost_reason: cost.reason };
+}
+
+function extractValidatedSources(response: Response): DiscoverySource[] {
+  const sources = new Map<string, DiscoverySource>();
+  for (const item of response.output) {
+    if (item.type !== "message") continue;
+    for (const content of item.content) {
+      if (content.type !== "output_text") continue;
+      for (const annotation of content.annotations) {
+        if (annotation.type !== "url_citation") continue;
+        try {
+          const parsed = new URL(annotation.url);
+          if (parsed.protocol !== "https:" && parsed.protocol !== "http:")
+            continue;
+          const title = annotation.title.trim() || parsed.hostname;
+          sources.set(annotation.url, { title, url: annotation.url });
+        } catch {
+          // Invalid citation metadata is excluded before schema validation.
+        }
+      }
+    }
+  }
+  return [...sources.values()];
+}
+
+function cleanResearchFinding(outputText: string): {
+  declaredInsufficient: boolean;
+  finding: string;
+} {
+  const trimmed = outputText.trim();
+  const declaredInsufficient = /^INSUFFICIENT\s*:/i.test(trimmed);
+  const finding = trimmed
+    .replace(/^(ANSWERED|INSUFFICIENT)\s*:\s*/i, "")
+    .replace(/https?:\/\/[^\s)\]}>,]+/g, "[validated source]")
+    .trim();
+  return {
+    declaredInsufficient,
+    finding: finding || "Reliable research did not return a usable answer.",
+  };
+}
+
+export async function runSelectiveResearch(
+  openai: OpenAI,
+  stage1: DiscoveryStage1,
+): Promise<{
+  results: DiscoveryResearchResult[];
+  calls: DiscoveryResearchCallMetrics[];
+}> {
+  const rawResults: DiscoveryResearchResult[] = [];
+  const calls: DiscoveryResearchCallMetrics[] = [];
+
+  for (const candidate of stage1.candidates) {
+    const gate = evaluateResearchGate(stage1, candidate);
+    if (!gate.allowed) continue;
+
+    const started = Date.now();
+    const response = await openai.responses.create({
+      model: DISCOVERY_STAGE2_MODEL,
+      reasoning: { effort: DISCOVERY_REASONING_EFFORT },
+      tools: [{ type: "web_search", search_context_size: "medium" }],
+      tool_choice: "required",
+      include: ["web_search_call.action.sources"],
+      store: false,
+      max_output_tokens: 3000,
+      instructions: RESEARCH_INSTRUCTIONS,
+      input: [
+        `CANDIDATE ID: ${candidate.id}`,
+        `QUESTION ID: ${candidate.question_id}`,
+        `VISIBLE TRIGGER: ${candidate.visual_trigger}`,
+        `GROUNDED OBSERVATION: ${candidate.observation}`,
+        `APPROVED QUESTION: ${candidate.investigation_question}`,
+        `WHY RESEARCH MAY DEEPEN THE IMAGE: ${candidate.research_rationale}`,
+      ].join("\n"),
+    });
+    const usage = normalizeResponseUsage(response, Date.now() - started);
+    const sources = extractValidatedSources(response);
+    const cleaned = cleanResearchFinding(response.output_text);
+    const status =
+      cleaned.declaredInsufficient || sources.length === 0
+        ? "insufficient"
+        : "answered";
+    const result: DiscoveryResearchResult = {
+      candidate_id: candidate.id,
+      question_id: candidate.question_id,
+      question: candidate.investigation_question,
+      status,
+      finding: cleaned.finding,
+      sources,
+    };
+    rawResults.push(result);
+    calls.push({
+      candidate_id: candidate.id,
+      question_id: candidate.question_id,
+      status,
+      ...stageMetrics(usage),
+    });
+  }
+
+  return { results: validateResearchResults(stage1, rawResults), calls };
+}
+
+export async function runDiscoveryPipeline(
+  openai: OpenAI,
+  imageDataUrl: string,
+): Promise<DiscoveryPipelineResult> {
+  const pipelineStarted = Date.now();
+  const timestamp = new Date().toISOString();
+
+  const stage1Started = Date.now();
+  const stage1Response = await openai.chat.completions.create({
+    model: DISCOVERY_STAGE1_MODEL,
+    reasoning_effort: DISCOVERY_REASONING_EFFORT,
+    max_completion_tokens: 10000,
+    response_format: {
+      type: "json_schema",
+      json_schema: DISCOVERY_STAGE1_JSON_SCHEMA as unknown as {
+        name: string;
+        strict: boolean;
+        schema: Record<string, unknown>;
+      },
+    },
+    messages: [
+      { role: "system", content: STAGE1_PROMPT },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Inspect this image and return only the grounded Stage 1 structure.",
+          },
+          {
+            type: "image_url",
+            image_url: { url: imageDataUrl, detail: "high" },
+          },
+        ],
+      },
+    ],
+  });
+  const stage1Usage = normalizeChatUsage(
+    stage1Response,
+    Date.now() - stage1Started,
+  );
+  const stage1Text = stage1Response.choices[0]?.message.content;
+  if (!stage1Text)
+    throw new Error("Discovery Stage 1 returned an empty response");
+  const stage1 = DiscoveryStage1Schema.parse(JSON.parse(stage1Text));
+
+  const research = await runSelectiveResearch(openai, stage1);
+  const stage2Usage = aggregateUsage(
+    DISCOVERY_STAGE2_MODEL,
+    research.calls.map((call) => call.usage),
+  );
+  const stage2Cost = sumNullable(research.calls.map((call) => call.cost_usd));
+
+  const stage3Started = Date.now();
+  const stage3Response = await openai.chat.completions.create({
+    model: DISCOVERY_STAGE3_MODEL,
+    reasoning_effort: DISCOVERY_REASONING_EFFORT,
+    max_completion_tokens: 10000,
+    response_format: {
+      type: "json_schema",
+      json_schema: DISCOVERY_STAGE3_JSON_SCHEMA as unknown as {
+        name: string;
+        strict: boolean;
+        schema: Record<string, unknown>;
+      },
+    },
+    messages: [
+      { role: "system", content: STAGE3_PROMPT },
+      {
+        role: "user",
+        content: [
+          "STAGE 1 GROUNDING:",
+          JSON.stringify(stage1),
+          "",
+          "DETERMINISTIC CALCULATIONS:",
+          "[]",
+          "",
+          "VALIDATED RESEARCH RESULTS:",
+          JSON.stringify(research.results),
+        ].join("\n"),
+      },
+    ],
+  });
+  const stage3Usage = normalizeChatUsage(
+    stage3Response,
+    Date.now() - stage3Started,
+  );
+  const stage3Text = stage3Response.choices[0]?.message.content;
+  if (!stage3Text)
+    throw new Error("Discovery Stage 3 returned an empty response");
+  const validated = validateDiscoveryOutput(
+    stage1,
+    research.results,
+    JSON.parse(stage3Text),
+  );
+
+  const stage1Metrics = stageMetrics(stage1Usage);
+  const stage3Metrics = stageMetrics(stage3Usage);
+  const totalCost = sumNullable([
+    stage1Metrics.cost_usd,
+    stage2Cost,
+    stage3Metrics.cost_usd,
+  ]);
+
+  return {
+    version: DISCOVERY_ENGINE_VERSION,
+    regions: stage1.regions,
+    discoveries: validated.discoveries,
+    inspection: {
+      stage1,
+      research_results: research.results,
+      discovery_candidates: validated.discoveryCandidates,
+    },
+    metrics: {
+      timestamp,
+      engine_version: DISCOVERY_ENGINE_VERSION,
+      success: true,
+      stage1: stage1Metrics,
+      stage2: {
+        model: DISCOVERY_STAGE2_MODEL,
+        reasoning_effort: DISCOVERY_REASONING_EFFORT,
+        questions_sent: research.calls.length,
+        latency_ms: stage2Usage.latency_ms,
+        usage: stage2Usage,
+        cost_usd: stage2Cost,
+        calls: research.calls,
+      },
+      stage3: {
+        ...stage3Metrics,
+        discoveries_returned: validated.discoveries.length,
+      },
+      total_latency_ms: Date.now() - pipelineStarted,
+      total_cost_usd: totalCost,
+      stage1_candidates: stage1.candidates.length,
+      research_gate_passed: research.calls.length,
+      final_discoveries: validated.discoveries.length,
+    },
+  };
+}

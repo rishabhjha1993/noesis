@@ -15,7 +15,10 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 const inFlight = new Map<string, Promise<DiscoveryPipelineResult>>();
 
-export function computeDiscoveryCacheKey(imageDataUrl: string): {
+export function computeDiscoveryCacheKey(
+  imageDataUrl: string,
+  engineVersion = DISCOVERY_ENGINE_VERSION,
+): {
   cacheKey: string;
   imageHash: string;
 } {
@@ -26,7 +29,7 @@ export function computeDiscoveryCacheKey(imageDataUrl: string): {
     .update(Buffer.from(base64, "base64"))
     .digest("hex");
   return {
-    cacheKey: `${DISCOVERY_ENGINE_VERSION}:${imageHash}`,
+    cacheKey: `${engineVersion}:${imageHash}`,
     imageHash,
   };
 }

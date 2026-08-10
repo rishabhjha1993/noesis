@@ -1,5 +1,7 @@
 import { customFetch } from "./custom-fetch";
 
+export type DiscoveryEngineVariant = "v1" | "v1-batched-research";
+
 export interface DiscoveryRegion {
   id: string;
   description: string;
@@ -126,6 +128,43 @@ export interface DiscoveryIdentityVerificationMetrics {
   cost_reason: string | null;
 }
 
+export interface DiscoveryBatchIdentityMapping {
+  candidate_id: string;
+  question_id: string;
+  used_verified_identity_context: boolean;
+  identity_hypothesis_id: string | null;
+}
+
+export interface DiscoveryBatchCandidateContext {
+  candidate_id: string;
+  question_id: string;
+  investigation_question: string;
+  visual_trigger: string;
+  observation: string;
+  observed_labels_or_numbers: string[];
+  relevant_regions: Array<{
+    id: string;
+    description: string;
+    scope: "local" | "global";
+  }>;
+  verified_identity: {
+    canonical_identity: string | null;
+    identity_type: string | null;
+    location: string | null;
+    verification_basis: string;
+  } | null;
+}
+
+export interface DiscoveryBatchResearchMetrics extends DiscoveryStageMetrics {
+  candidate_count: number;
+  candidate_ids: string[];
+  question_ids: string[];
+  invalid_candidate_ids: string[];
+  missing_candidate_ids: string[];
+  answered_candidates: number;
+  insufficient_candidates: number;
+}
+
 export interface DiscoveryRunResult {
   version: string;
   regions: DiscoveryRegion[];
@@ -140,6 +179,12 @@ export interface DiscoveryRunResult {
     identity_verification: DiscoveryIdentityVerification | null;
     research_results: DiscoveryResearchResult[];
     discovery_candidates: Record<string, string[]>;
+    research_batch?: {
+      candidates: DiscoveryBatchCandidateContext[];
+      identity_context_mappings: DiscoveryBatchIdentityMapping[];
+      invalid_candidate_ids: string[];
+      missing_candidate_ids: string[];
+    };
   };
   metrics: {
     timestamp: string;
@@ -155,13 +200,19 @@ export interface DiscoveryRunResult {
       cost_usd: number | null;
       identity_verification: DiscoveryIdentityVerificationMetrics;
       candidate_calls_using_verified_identity: number;
+      candidate_research_api_calls: number;
+      answered_candidates: number;
+      insufficient_candidates: number;
       calls: DiscoveryResearchCallMetrics[];
+      batch: DiscoveryBatchResearchMetrics | null;
     };
     stage3: DiscoveryStageMetrics & {
       discoveries_returned: number;
     };
     total_latency_ms: number;
     total_cost_usd: number | null;
+    cost_per_successful_analysis_usd: number | null;
+    cost_per_final_discovery_usd: number | null;
     stage1_candidates: number;
     research_gate_passed: number;
     final_discoveries: number;
@@ -211,6 +262,9 @@ export interface DiscoveryFailureDiagnostic {
   elapsed_ms: number;
   candidate_id?: string;
   question_id?: string;
+  research_failure_scope?:
+    "batch_api" | "batch_schema" | "candidate_validation";
+  affected_candidate_ids?: string[];
   partial_metrics: {
     stage1: DiscoverySafeStageMetrics | null;
     identity_verification:
@@ -246,11 +300,17 @@ export type DiscoveryJobStatus =
       diagnostic?: DiscoveryFailureDiagnostic;
     };
 
-export async function startDiscovery(imageDataUrl: string): Promise<string> {
+export async function startDiscovery(
+  imageDataUrl: string,
+  engineVariant: DiscoveryEngineVariant = "v1",
+): Promise<string> {
   const result = await customFetch<{ discovery_id: string }>("/api/discovery", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ image_data_url: imageDataUrl }),
+    body: JSON.stringify({
+      image_data_url: imageDataUrl,
+      engine_variant: engineVariant,
+    }),
     responseType: "json",
   });
   return result.discovery_id;

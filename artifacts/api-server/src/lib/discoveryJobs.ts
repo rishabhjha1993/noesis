@@ -5,9 +5,12 @@ import {
   getOrComputeDiscovery,
 } from "./discoveryCache";
 import {
+  DEFAULT_DISCOVERY_ENGINE_VARIANT,
   createUnknownDiscoveryFailureDiagnostic,
+  discoveryEngineVersionForVariant,
   getDiscoveryFailureDiagnostic,
   runDiscoveryPipeline,
+  type DiscoveryEngineVariant,
   type DiscoveryFailureDiagnostic,
   type DiscoveryPipelineResult,
 } from "./discoveryPipeline";
@@ -72,6 +75,7 @@ export function discoveryErrorLogDetails(error: unknown): {
 export function createDiscoveryErrorJob(
   error: unknown,
   startedAt: number,
+  engineVersion?: string,
 ): Extract<DiscoveryJob, { status: "error" }> {
   return {
     status: "error",
@@ -79,7 +83,7 @@ export function createDiscoveryErrorJob(
     error: "Discovery failed. Please try again or choose another image.",
     diagnostic:
       getDiscoveryFailureDiagnostic(error) ??
-      createUnknownDiscoveryFailureDiagnostic(error, startedAt),
+      createUnknownDiscoveryFailureDiagnostic(error, startedAt, engineVersion),
   };
 }
 
@@ -101,6 +105,7 @@ function pendingCount(): number {
 export function startDiscoveryJob(
   apiKey: string,
   imageDataUrl: string,
+  variant: DiscoveryEngineVariant = DEFAULT_DISCOVERY_ENGINE_VARIANT,
 ): { discoveryId: string } | { busy: true } {
   sweep();
   if (pendingCount() >= MAX_CONCURRENT_DISCOVERY_JOBS) return { busy: true };
@@ -108,7 +113,11 @@ export function startDiscoveryJob(
   const discoveryId = randomUUID();
   const jobStartedAt = Date.now();
   jobs.set(discoveryId, { status: "pending", createdAt: jobStartedAt });
-  const { cacheKey, imageHash } = computeDiscoveryCacheKey(imageDataUrl);
+  const engineVersion = discoveryEngineVersionForVariant(variant);
+  const { cacheKey, imageHash } = computeDiscoveryCacheKey(
+    imageDataUrl,
+    engineVersion,
+  );
   const cacheIdentifier = imageHash.slice(0, 12);
   const openai = new OpenAI({ apiKey });
 
@@ -122,7 +131,9 @@ export function startDiscoveryJob(
   );
 
   void getOrComputeDiscovery(cacheKey, async () => {
-    const result = await runDiscoveryPipeline(openai, imageDataUrl);
+    const result = await runDiscoveryPipeline(openai, imageDataUrl, {
+      variant,
+    });
     logger.info(
       { cache_identifier: cacheIdentifier, ...result.metrics },
       "[Noesis Discovery] cold run metrics",
@@ -143,7 +154,11 @@ export function startDiscoveryJob(
       );
     })
     .catch((error: unknown) => {
-      const failedJob = createDiscoveryErrorJob(error, jobStartedAt);
+      const failedJob = createDiscoveryErrorJob(
+        error,
+        jobStartedAt,
+        engineVersion,
+      );
       logger.error(
         {
           discovery_id: discoveryId,

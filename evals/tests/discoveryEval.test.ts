@@ -168,6 +168,9 @@ const resultFixture: DiscoveryRunResult = {
         cost_reason: null,
       },
       candidate_calls_using_verified_identity: 1,
+      candidate_research_api_calls: 1,
+      answered_candidates: 1,
+      insufficient_candidates: 0,
       calls: [
         {
           candidate_id: "c1",
@@ -188,6 +191,7 @@ const resultFixture: DiscoveryRunResult = {
           cost_reason: null,
         },
       ],
+      batch: null,
     },
     stage3: {
       usage: {
@@ -206,6 +210,8 @@ const resultFixture: DiscoveryRunResult = {
     },
     total_latency_ms: 3800,
     total_cost_usd: 0.0064,
+    cost_per_successful_analysis_usd: 0.0064,
+    cost_per_final_discovery_usd: 0.0064,
     stage1_candidates: 1,
     research_gate_passed: 1,
     final_discoveries: 1,

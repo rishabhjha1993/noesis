@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { AnalyzeImageBody } from "@workspace/api-zod";
 import { getDiscoveryJob, startDiscoveryJob } from "../lib/discoveryJobs";
+import type { DiscoveryEngineVariant } from "../lib/discoveryPipeline";
 import {
   analysisRateLimit,
   decodedImageBytes,
@@ -16,6 +17,17 @@ router.post("/discovery", analysisRateLimit, (req, res) => {
     return;
   }
   const { image_data_url } = parsedBody.data;
+  const requestedVariant = (req.body as { engine_variant?: unknown })
+    .engine_variant;
+  if (
+    requestedVariant !== undefined &&
+    requestedVariant !== "v1" &&
+    requestedVariant !== "v1-batched-research"
+  ) {
+    res.status(400).json({ error: "Unknown Discovery engine variant" });
+    return;
+  }
+  const engineVariant: DiscoveryEngineVariant = requestedVariant ?? "v1";
   if (!/^data:image\/(png|jpeg|jpg|webp|gif);base64,/.test(image_data_url)) {
     res.status(400).json({
       error:
@@ -43,7 +55,7 @@ router.post("/discovery", analysisRateLimit, (req, res) => {
     return;
   }
 
-  const started = startDiscoveryJob(apiKey, image_data_url);
+  const started = startDiscoveryJob(apiKey, image_data_url, engineVariant);
   if ("busy" in started) {
     res.status(503).json({
       error: "The discovery lab is busy. Please try again in a moment.",

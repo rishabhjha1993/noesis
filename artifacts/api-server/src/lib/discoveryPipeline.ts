@@ -18,13 +18,34 @@ import {
   type DiscoverySource,
   type DiscoveryStage1,
 } from "./discoveryContracts";
+import {
+  DISCOVERY_BATCHED_RESEARCH_JSON_SCHEMA,
+  DiscoveryBatchValidationError,
+  buildDiscoveryBatchContext,
+  validateDiscoveryBatchResults,
+  type DiscoveryBatchCandidateContext,
+  type DiscoveryBatchFailureScope,
+  type DiscoveryBatchIdentityMapping,
+} from "./discoveryBatchResearch";
 import { estimateModelCost } from "./modelPricing";
 
 export const DISCOVERY_ENGINE_VERSION = "discovery-engine-v1";
+export const DISCOVERY_BATCHED_RESEARCH_ENGINE_VERSION =
+  "discovery-engine-v1-batched-research";
+export type DiscoveryEngineVariant = "v1" | "v1-batched-research";
+export const DEFAULT_DISCOVERY_ENGINE_VARIANT: DiscoveryEngineVariant = "v1";
 export const DISCOVERY_STAGE1_MODEL = "gpt-5.6-sol";
 export const DISCOVERY_STAGE2_MODEL = "gpt-5.6-terra";
 export const DISCOVERY_STAGE3_MODEL = "gpt-5.6-sol";
 export const DISCOVERY_REASONING_EFFORT = "medium";
+
+export function discoveryEngineVersionForVariant(
+  variant: DiscoveryEngineVariant,
+): string {
+  return variant === "v1-batched-research"
+    ? DISCOVERY_BATCHED_RESEARCH_ENGINE_VERSION
+    : DISCOVERY_ENGINE_VERSION;
+}
 
 const STAGE1_PROMPT = `You are Stage 1 of Noesis Discovery Engine V1: SEE → QUESTION.
 
@@ -60,6 +81,16 @@ You receive one question approved by the visual Stage 1 gate. You do not receive
 Never silently substitute a similar place, building, object, image, or figure. A shared word, typography style, motif, or generic structure does not show that an external source depicts the same object. Clearly distinguish evidence about a general convention from evidence about the exact uploaded subject. If exact identity is needed but was not verified, prefer INSUFFICIENT over a plausible unsupported match.
 
 Begin with ANSWERED: when trustworthy sources materially answer the question. Begin with INSUFFICIENT: when reliable research cannot answer it. Keep the finding concise. Cite claims using the web-search citations supplied by the API. Never invent or type source URLs yourself.`;
+
+const BATCHED_RESEARCH_INSTRUCTIONS = `You are the batched candidate-research operation inside Stage 2 of Noesis Discovery Engine V1.
+
+You receive a compact text-only list of questions already approved by the visual Stage 1 research gate. You do not receive the image. Answer only the supplied questions, preserve every candidate_id and question_id exactly, and treat every candidate independently. Never invent, broaden, merge, replace, or add candidates or questions.
+
+For each candidate, remain tied to its visual trigger and grounded observation. Return insufficient independently when trustworthy evidence is inadequate. Keep each finding and its sources scoped only to the candidate they support. Verified identity context, when present for a candidate, is search context only and is never permission for generic topic research.
+
+Never treat visual similarity, shared labels, typography, motifs, composition, or generic structure as proof that an external source depicts the same exact place, figure, object, or image. Never infer provenance of an underlying visual merely because a modern source reproduces, uses, or discusses it. Prefer insufficient evidence over unsupported specificity.
+
+Use web-search citations only. Never invent source URLs. Return only the strict JSON result.`;
 
 const STAGE3_PROMPT = `You are Stage 3 of Noesis Discovery Engine V1: DISCOVER → RETURN TO IMAGE.
 
@@ -117,6 +148,23 @@ export interface DiscoveryIdentityVerificationMetrics {
   cost_reason: string | null;
 }
 
+export interface DiscoveryBatchResearchMetrics extends DiscoveryStageMetrics {
+  candidate_count: number;
+  candidate_ids: string[];
+  question_ids: string[];
+  invalid_candidate_ids: string[];
+  missing_candidate_ids: string[];
+  answered_candidates: number;
+  insufficient_candidates: number;
+}
+
+export interface DiscoveryBatchInspection {
+  candidates: DiscoveryBatchCandidateContext[];
+  identity_context_mappings: DiscoveryBatchIdentityMapping[];
+  invalid_candidate_ids: string[];
+  missing_candidate_ids: string[];
+}
+
 export interface DiscoveryPipelineMetrics {
   timestamp: string;
   engine_version: string;
@@ -131,11 +179,17 @@ export interface DiscoveryPipelineMetrics {
     cost_usd: number | null;
     identity_verification: DiscoveryIdentityVerificationMetrics;
     candidate_calls_using_verified_identity: number;
+    candidate_research_api_calls: number;
+    answered_candidates: number;
+    insufficient_candidates: number;
     calls: DiscoveryResearchCallMetrics[];
+    batch: DiscoveryBatchResearchMetrics | null;
   };
   stage3: DiscoveryStageMetrics & { discoveries_returned: number };
   total_latency_ms: number;
   total_cost_usd: number | null;
+  cost_per_successful_analysis_usd: number | null;
+  cost_per_final_discovery_usd: number | null;
   stage1_candidates: number;
   research_gate_passed: number;
   final_discoveries: number;
@@ -145,7 +199,9 @@ export interface DiscoveryPipelineResult {
   version: string;
   regions: DiscoveryRegion[];
   discoveries: Discovery[];
-  inspection: DiscoveryInspection;
+  inspection: DiscoveryInspection & {
+    research_batch?: DiscoveryBatchInspection;
+  };
   metrics: DiscoveryPipelineMetrics;
 }
 
@@ -200,6 +256,8 @@ export interface DiscoveryFailureDiagnostic {
   elapsed_ms: number;
   candidate_id?: string;
   question_id?: string;
+  research_failure_scope?: DiscoveryBatchFailureScope;
+  affected_candidate_ids?: string[];
   partial_metrics: {
     stage1: DiscoverySafeStageMetrics | null;
     identity_verification:
@@ -222,6 +280,7 @@ export interface DiscoveryFailureDiagnostic {
 
 interface DiscoveryExecutionState {
   startedAt: number;
+  engineVersion: string;
   stageReached: DiscoveryFailureStage;
   lastCompletedStage: DiscoveryFailureDiagnostic["last_completed_stage"];
   currentCandidateId?: string;
@@ -236,12 +295,18 @@ interface DiscoveryExecutionState {
   knownStage2Metrics: DiscoveryStageMetrics[];
   researchCalls: DiscoveryResearchCallMetrics[];
   attemptedResearchCalls: number;
+  researchFailureScope?: DiscoveryBatchFailureScope;
+  affectedCandidateIds?: string[];
   stage3: DiscoveryStageMetrics | null;
 }
 
-function createExecutionState(startedAt = Date.now()): DiscoveryExecutionState {
+function createExecutionState(
+  startedAt = Date.now(),
+  engineVersion = DISCOVERY_ENGINE_VERSION,
+): DiscoveryExecutionState {
   return {
     startedAt,
+    engineVersion,
     stageReached: "unknown",
     lastCompletedStage: "none",
     stage1: null,
@@ -479,7 +544,7 @@ function createFailureDiagnostic(
   ].filter((metrics): metrics is DiscoveryStageMetrics => metrics !== null);
 
   return {
-    engine_version: DISCOVERY_ENGINE_VERSION,
+    engine_version: state.engineVersion,
     failed_stage: state.stageReached,
     stage_reached: state.stageReached,
     last_completed_stage: state.lastCompletedStage,
@@ -491,6 +556,12 @@ function createFailureDiagnostic(
       : {}),
     ...(state.currentQuestionId
       ? { question_id: state.currentQuestionId }
+      : {}),
+    ...(state.researchFailureScope
+      ? { research_failure_scope: state.researchFailureScope }
+      : {}),
+    ...(state.affectedCandidateIds
+      ? { affected_candidate_ids: state.affectedCandidateIds }
       : {}),
     partial_metrics: {
       stage1: state.stage1 ? safeStage(state.stage1) : null,
@@ -540,8 +611,12 @@ export function getDiscoveryFailureDiagnostic(
 export function createUnknownDiscoveryFailureDiagnostic(
   error: unknown,
   startedAt: number,
+  engineVersion = DISCOVERY_ENGINE_VERSION,
 ): DiscoveryFailureDiagnostic {
-  return createFailureDiagnostic(error, createExecutionState(startedAt));
+  return createFailureDiagnostic(
+    error,
+    createExecutionState(startedAt, engineVersion),
+  );
 }
 
 function extractValidatedSources(response: Response): DiscoverySource[] {
@@ -586,6 +661,17 @@ function cleanResearchFinding(outputText: string): {
 export interface DiscoveryIdentityVerificationExecution {
   result: DiscoveryIdentityVerification | null;
   metrics: DiscoveryIdentityVerificationMetrics;
+}
+
+export interface DiscoveryResearchExecution {
+  results: DiscoveryResearchResult[];
+  calls: DiscoveryResearchCallMetrics[];
+  identityVerification: DiscoveryIdentityVerificationExecution;
+  gatedCandidates: number;
+  candidateResearchApiCalls: number;
+  candidateCallsUsingVerifiedIdentity: number;
+  batchMetrics: DiscoveryBatchResearchMetrics | null;
+  batchInspection: DiscoveryBatchInspection | null;
 }
 
 function identityNotRun(): DiscoveryIdentityVerificationExecution {
@@ -706,11 +792,7 @@ async function runSelectiveResearchWithState(
   openai: OpenAI,
   stage1: DiscoveryStage1,
   state: DiscoveryExecutionState,
-): Promise<{
-  results: DiscoveryResearchResult[];
-  calls: DiscoveryResearchCallMetrics[];
-  identityVerification: DiscoveryIdentityVerificationExecution;
-}> {
+): Promise<DiscoveryResearchExecution> {
   const rawResults: DiscoveryResearchResult[] = [];
   const calls: DiscoveryResearchCallMetrics[] = [];
   const gatedCandidates = stage1.candidates.filter(
@@ -818,16 +900,170 @@ async function runSelectiveResearchWithState(
     results,
     calls,
     identityVerification,
+    gatedCandidates: gatedCandidates.length,
+    candidateResearchApiCalls: calls.length,
+    candidateCallsUsingVerifiedIdentity: calls.filter(
+      (call) => call.used_verified_identity_context,
+    ).length,
+    batchMetrics: null,
+    batchInspection: null,
   };
+}
+
+async function runBatchedSelectiveResearchWithState(
+  openai: OpenAI,
+  stage1: DiscoveryStage1,
+  state: DiscoveryExecutionState,
+): Promise<DiscoveryResearchExecution> {
+  const gatedCandidates = stage1.candidates.filter(
+    (candidate) => evaluateResearchGate(stage1, candidate).allowed,
+  );
+  const gatedQuestionIds = new Set(
+    gatedCandidates.map((candidate) => candidate.question_id),
+  );
+  const identityVerification = await runIdentityVerification(
+    openai,
+    stage1,
+    gatedQuestionIds,
+    state,
+  );
+  const batchContext = buildDiscoveryBatchContext(
+    stage1,
+    gatedCandidates,
+    identityVerification.result,
+  );
+
+  if (gatedCandidates.length === 0) {
+    state.stageReached = "research";
+    state.lastCompletedStage = "research";
+    return {
+      results: [],
+      calls: [],
+      identityVerification,
+      gatedCandidates: 0,
+      candidateResearchApiCalls: 0,
+      candidateCallsUsingVerifiedIdentity: 0,
+      batchMetrics: null,
+      batchInspection: {
+        ...batchContext,
+        invalid_candidate_ids: [],
+        missing_candidate_ids: [],
+      },
+    };
+  }
+
+  state.stageReached = "research";
+  state.currentCandidateId = undefined;
+  state.currentQuestionId = undefined;
+  state.attemptedResearchCalls += 1;
+  state.researchFailureScope = "batch_api";
+  state.affectedCandidateIds = gatedCandidates.map((candidate) => candidate.id);
+  const started = Date.now();
+  const response = await openai.responses.create({
+    model: DISCOVERY_STAGE2_MODEL,
+    reasoning: { effort: DISCOVERY_REASONING_EFFORT },
+    tools: [{ type: "web_search", search_context_size: "medium" }],
+    tool_choice: "required",
+    include: ["web_search_call.action.sources"],
+    store: false,
+    max_output_tokens: 3000,
+    text: { format: DISCOVERY_BATCHED_RESEARCH_JSON_SCHEMA },
+    instructions: BATCHED_RESEARCH_INSTRUCTIONS,
+    input: [
+      "APPROVED RESEARCH CANDIDATES:",
+      JSON.stringify({ candidates: batchContext.candidates }),
+      "Return exactly one independently scoped result per supplied candidate.",
+    ].join("\n"),
+  });
+  const usage = normalizeResponseUsage(response, Date.now() - started);
+  const metrics = stageMetrics(usage);
+  state.knownStage2Metrics.push(metrics);
+  state.researchFailureScope = "batch_schema";
+
+  let validatedBatch: ReturnType<typeof validateDiscoveryBatchResults>;
+  try {
+    validatedBatch = validateDiscoveryBatchResults(
+      stage1,
+      gatedCandidates,
+      JSON.parse(response.output_text),
+      extractValidatedSources(response),
+    );
+  } catch (error) {
+    if (error instanceof DiscoveryBatchValidationError) {
+      state.researchFailureScope = error.scope;
+      state.currentCandidateId = error.candidateId;
+      state.currentQuestionId = error.questionId;
+      state.affectedCandidateIds = error.candidateId
+        ? [error.candidateId]
+        : gatedCandidates.map((candidate) => candidate.id);
+    }
+    throw error;
+  }
+
+  const answeredCandidates = validatedBatch.results.filter(
+    (result) => result.status === "answered",
+  ).length;
+  const insufficientCandidates =
+    validatedBatch.results.length - answeredCandidates;
+  state.researchFailureScope = undefined;
+  state.affectedCandidateIds = undefined;
+  state.lastCompletedStage = "research";
+  return {
+    results: validatedBatch.results,
+    calls: [],
+    identityVerification,
+    gatedCandidates: gatedCandidates.length,
+    candidateResearchApiCalls: 1,
+    candidateCallsUsingVerifiedIdentity:
+      batchContext.identity_context_mappings.filter(
+        (mapping) => mapping.used_verified_identity_context,
+      ).length,
+    batchMetrics: {
+      ...metrics,
+      candidate_count: gatedCandidates.length,
+      candidate_ids: gatedCandidates.map((candidate) => candidate.id),
+      question_ids: gatedCandidates.map((candidate) => candidate.question_id),
+      invalid_candidate_ids: validatedBatch.invalid_candidate_ids,
+      missing_candidate_ids: validatedBatch.missing_candidate_ids,
+      answered_candidates: answeredCandidates,
+      insufficient_candidates: insufficientCandidates,
+    },
+    batchInspection: {
+      ...batchContext,
+      invalid_candidate_ids: validatedBatch.invalid_candidate_ids,
+      missing_candidate_ids: validatedBatch.missing_candidate_ids,
+    },
+  };
+}
+
+export async function runBatchedSelectiveResearch(
+  openai: OpenAI,
+  stage1: DiscoveryStage1,
+): Promise<DiscoveryResearchExecution> {
+  const state = createExecutionState(
+    Date.now(),
+    DISCOVERY_BATCHED_RESEARCH_ENGINE_VERSION,
+  );
+  try {
+    return await runBatchedSelectiveResearchWithState(openai, stage1, state);
+  } catch (error) {
+    throw new DiscoveryPipelineError(error, state);
+  }
 }
 
 export async function runSelectiveResearch(
   openai: OpenAI,
   stage1: DiscoveryStage1,
-): ReturnType<typeof runSelectiveResearchWithState> {
+): Promise<{
+  results: DiscoveryResearchResult[];
+  calls: DiscoveryResearchCallMetrics[];
+  identityVerification: DiscoveryIdentityVerificationExecution;
+}> {
   const state = createExecutionState();
   try {
-    return await runSelectiveResearchWithState(openai, stage1, state);
+    const { results, calls, identityVerification } =
+      await runSelectiveResearchWithState(openai, stage1, state);
+    return { results, calls, identityVerification };
   } catch (error) {
     throw new DiscoveryPipelineError(error, state);
   }
@@ -839,6 +1075,7 @@ async function runDiscoveryPipelineWithState(
   pipelineStarted: number,
   timestamp: string,
   state: DiscoveryExecutionState,
+  variant: DiscoveryEngineVariant,
 ): Promise<DiscoveryPipelineResult> {
   state.stageReached = "stage1";
   const stage1Started = Date.now();
@@ -883,13 +1120,20 @@ async function runDiscoveryPipelineWithState(
   const stage1 = DiscoveryStage1Schema.parse(JSON.parse(stage1Text));
   state.lastCompletedStage = "stage1";
 
-  const research = await runSelectiveResearchWithState(openai, stage1, state);
-  const stage2Usages = research.calls.map((call) => call.usage);
+  const research =
+    variant === "v1-batched-research"
+      ? await runBatchedSelectiveResearchWithState(openai, stage1, state)
+      : await runSelectiveResearchWithState(openai, stage1, state);
+  const stage2Usages = research.batchMetrics
+    ? [research.batchMetrics.usage]
+    : research.calls.map((call) => call.usage);
   if (research.identityVerification.metrics.usage) {
     stage2Usages.unshift(research.identityVerification.metrics.usage);
   }
   const stage2Usage = aggregateUsage(DISCOVERY_STAGE2_MODEL, stage2Usages);
-  const stage2Costs = research.calls.map((call) => call.cost_usd);
+  const stage2Costs = research.batchMetrics
+    ? [research.batchMetrics.cost_usd]
+    : research.calls.map((call) => call.cost_usd);
   if (research.identityVerification.metrics.ran) {
     stage2Costs.unshift(research.identityVerification.metrics.cost_usd);
   }
@@ -970,9 +1214,18 @@ async function runDiscoveryPipelineWithState(
     stage2Cost,
     stage3Metrics.cost_usd,
   ]);
+  const engineVersion = discoveryEngineVersionForVariant(variant);
+  const costPerFinalDiscovery =
+    totalCost !== null && validated.discoveries.length > 0
+      ? totalCost / validated.discoveries.length
+      : null;
+  const answeredCandidates = research.results.filter(
+    (result) => result.status === "answered",
+  ).length;
+  const insufficientCandidates = research.results.length - answeredCandidates;
 
   return {
-    version: DISCOVERY_ENGINE_VERSION,
+    version: engineVersion,
     regions: stage1.regions,
     discoveries: validated.discoveries,
     inspection: {
@@ -980,24 +1233,30 @@ async function runDiscoveryPipelineWithState(
       identity_verification: research.identityVerification.result,
       research_results: research.results,
       discovery_candidates: validated.discoveryCandidates,
+      ...(research.batchInspection
+        ? { research_batch: research.batchInspection }
+        : {}),
     },
     metrics: {
       timestamp,
-      engine_version: DISCOVERY_ENGINE_VERSION,
+      engine_version: engineVersion,
       success: true,
       stage1: stage1Metrics,
       stage2: {
         model: DISCOVERY_STAGE2_MODEL,
         reasoning_effort: DISCOVERY_REASONING_EFFORT,
-        questions_sent: research.calls.length,
+        questions_sent: research.gatedCandidates,
         latency_ms: stage2Usage.latency_ms,
         usage: stage2Usage,
         cost_usd: stage2Cost,
         identity_verification: research.identityVerification.metrics,
-        candidate_calls_using_verified_identity: research.calls.filter(
-          (call) => call.used_verified_identity_context,
-        ).length,
+        candidate_calls_using_verified_identity:
+          research.candidateCallsUsingVerifiedIdentity,
+        candidate_research_api_calls: research.candidateResearchApiCalls,
+        answered_candidates: answeredCandidates,
+        insufficient_candidates: insufficientCandidates,
         calls: research.calls,
+        batch: research.batchMetrics,
       },
       stage3: {
         ...stage3Metrics,
@@ -1005,8 +1264,10 @@ async function runDiscoveryPipelineWithState(
       },
       total_latency_ms: Date.now() - pipelineStarted,
       total_cost_usd: totalCost,
+      cost_per_successful_analysis_usd: totalCost,
+      cost_per_final_discovery_usd: costPerFinalDiscovery,
       stage1_candidates: stage1.candidates.length,
-      research_gate_passed: research.calls.length,
+      research_gate_passed: research.gatedCandidates,
       final_discoveries: validated.discoveries.length,
     },
   };
@@ -1015,10 +1276,13 @@ async function runDiscoveryPipelineWithState(
 export async function runDiscoveryPipeline(
   openai: OpenAI,
   imageDataUrl: string,
+  options: { variant?: DiscoveryEngineVariant } = {},
 ): Promise<DiscoveryPipelineResult> {
   const pipelineStarted = Date.now();
   const timestamp = new Date().toISOString();
-  const state = createExecutionState(pipelineStarted);
+  const variant = options.variant ?? DEFAULT_DISCOVERY_ENGINE_VARIANT;
+  const engineVersion = discoveryEngineVersionForVariant(variant);
+  const state = createExecutionState(pipelineStarted, engineVersion);
 
   try {
     return await runDiscoveryPipelineWithState(
@@ -1027,6 +1291,7 @@ export async function runDiscoveryPipeline(
       pipelineStarted,
       timestamp,
       state,
+      variant,
     );
   } catch (error) {
     if (error instanceof DiscoveryPipelineError) throw error;

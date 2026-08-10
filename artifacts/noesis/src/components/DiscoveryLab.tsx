@@ -11,6 +11,7 @@ import {
   getDiscoveryStatus,
   startDiscovery,
   type Discovery,
+  type DiscoveryEngineVariant,
   type DiscoveryFailureDiagnostic,
   type DiscoveryRunResult,
 } from "@workspace/api-client-react";
@@ -111,6 +112,8 @@ function DiscoveryCard({
 }
 
 export function DiscoveryLab() {
+  const [engineVariant, setEngineVariant] =
+    useState<DiscoveryEngineVariant>("v1");
   const [file, setFile] = useState<File | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<"upload" | "loading" | "done" | "error">(
@@ -181,7 +184,7 @@ export function DiscoveryLab() {
     setFailureDiagnostic(null);
     try {
       const dataUrl = await fileToDataUrl(file);
-      const discoveryId = await startDiscovery(dataUrl);
+      const discoveryId = await startDiscovery(dataUrl, engineVariant);
       setDiscoveryId(discoveryId);
       const deadline = Date.now() + POLL_TIMEOUT_MS;
       for (;;) {
@@ -245,7 +248,7 @@ export function DiscoveryLab() {
         <header className="flex flex-wrap items-center justify-between gap-4 border-b border-border px-5 py-4 lg:px-8">
           <div>
             <div className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">
-              <FlaskConical className="h-4 w-4" /> Discovery Engine V1
+              <FlaskConical className="h-4 w-4" /> {result.version}
             </div>
             <h1 className="mt-1 font-serif text-2xl">Human evaluation lab</h1>
           </div>
@@ -429,6 +432,20 @@ export function DiscoveryLab() {
                         .candidate_calls_using_verified_identity
                     }
                   </p>
+                  <p>
+                    <strong className="text-foreground">
+                      Candidate research API calls:
+                    </strong>{" "}
+                    {result.metrics.stage2.candidate_research_api_calls}
+                  </p>
+                  {result.metrics.stage2.batch && (
+                    <p>
+                      <strong className="text-foreground">
+                        Batch candidates:
+                      </strong>{" "}
+                      {result.metrics.stage2.batch.candidate_count}
+                    </p>
+                  )}
                 </div>
                 {(selectedCandidates ?? []).map((candidate) => {
                   const research = result.inspection.research_results.find(
@@ -491,6 +508,10 @@ export function DiscoveryLab() {
                   </span>
                   <span>Version: {result.version}</span>
                   <span>Cache: {cacheHit ? "hit" : "miss"}</span>
+                  <span>
+                    Cost / discovery:{" "}
+                    {money(result.metrics.cost_per_final_discovery_usd)}
+                  </span>
                 </div>
               </div>
             </details>
@@ -515,6 +536,20 @@ export function DiscoveryLab() {
         </div>
 
         <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+          <label className="mb-5 block text-sm">
+            <span className="mb-2 block font-medium">Evaluation variant</span>
+            <select
+              value={engineVariant}
+              onChange={(event) =>
+                setEngineVariant(event.target.value as DiscoveryEngineVariant)
+              }
+              disabled={status === "loading"}
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            >
+              <option value="v1">V1 baseline</option>
+              <option value="v1-batched-research">V1 batched research</option>
+            </select>
+          </label>
           {imageUrl ? (
             <img
               src={imageUrl}
@@ -544,7 +579,8 @@ export function DiscoveryLab() {
                 onClick={() => void run()}
                 className="rounded-md bg-primary px-6 py-3 font-medium text-primary-foreground hover:bg-primary/90"
               >
-                Run Discovery V1
+                Run{" "}
+                {engineVariant === "v1" ? "V1 baseline" : "V1 batched research"}
               </button>
               <label className="cursor-pointer rounded-md border border-border px-6 py-3 font-medium hover:bg-muted">
                 Choose another
@@ -587,6 +623,12 @@ export function DiscoveryLab() {
                 <div className="grid gap-1 sm:grid-cols-2">
                   <span>Failed stage: {failureDiagnostic.failed_stage}</span>
                   <span>Category: {failureDiagnostic.category}</span>
+                  {failureDiagnostic.research_failure_scope && (
+                    <span>
+                      Research failure:{" "}
+                      {failureDiagnostic.research_failure_scope}
+                    </span>
+                  )}
                   <span>Runtime: {seconds(failureDiagnostic.elapsed_ms)}</span>
                   <span>
                     Known cost:{" "}

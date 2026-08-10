@@ -2,16 +2,20 @@
   "name": "workspace",
   "version": "0.0.0",
   "license": "MIT",
+  "packageManager": "pnpm@11.16.0",
   "scripts": {
     "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
+    "start": "node --env-file-if-exists=.env.local --enable-source-maps artifacts/api-server/dist/index.mjs",
+    "eval:noesis": "pnpm --dir scripts exec tsx ../evals/run.ts",
+    "eval:noesis:socratic": "pnpm --dir scripts exec tsx ../evals/run.ts --mode socratic",
+    "eval:noesis:socratic-quality-v2": "pnpm --dir scripts exec tsx ../evals/run.ts --mode socratic-quality-v2",
+    "eval:noesis:summarize": "pnpm --dir scripts exec tsx ../evals/summarize.ts",
+    "test:noesis-metrics": "pnpm --dir scripts exec tsx --test ../evals/tests/*.test.ts",
     "typecheck:libs": "tsc --build",
-    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
+    "typecheck": "pnpm run typecheck:libs && tsc -p evals/tsconfig.json --noEmit && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
   },
   "private": true,
-  "dependencies": {
-    "@replit/connectors-sdk": "^0.4.1"
-  },
   "devDependencies": {
     "prettier": "^3.9.6",
     "typescript": "~5.9.3"

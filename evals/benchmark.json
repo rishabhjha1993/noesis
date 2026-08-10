@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "benchmarks": [
+    {
+      "id": "us-energy-sankey-2023",
+      "path": "../attached_assets/test/energy-2023-united-states.png",
+      "visual_type": "sankey",
+      "difficulty": "high",
+      "tags": ["numeric", "flows", "ratios"],
+      "expected_capabilities": ["extract numbers", "compute ratios", "identify dominant losses"]
+    },
+    {
+      "id": "cern-network-map",
+      "path": "../attached_assets/Cern_1786269803661.png",
+      "visual_type": "network / infrastructure map",
+      "difficulty": "high",
+      "tags": ["network", "map", "topology"],
+      "expected_capabilities": ["identify clusters", "trace relationships", "ground regions"]
+    },
+    {
+      "id": "test-visual",
+      "path": "../attached_assets/test/test-visual.png",
+      "visual_type": "mixed visual",
+      "difficulty": "medium",
+      "tags": ["fixture", "mixed"],
+      "expected_capabilities": ["identify visual structure", "extract visible facts", "produce a coherent walkthrough"]
+    }
+  ]
+}

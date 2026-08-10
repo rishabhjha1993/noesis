@@ -4,13 +4,12 @@ import * as schema from "./schema";
 
 const { Pool } = pg;
 
-if (!process.env.DATABASE_URL) {
-  throw new Error(
-    "DATABASE_URL must be set. Did you forget to provision a database?",
-  );
-}
+const connectionString = process.env.DATABASE_URL?.trim();
 
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-export const db = drizzle(pool, { schema });
+// The product can run without a persistent cache. When DATABASE_URL is set,
+// behavior is unchanged and the Postgres-backed cache is enabled.
+export const pool = connectionString ? new Pool({ connectionString }) : null;
+export const db = pool ? drizzle(pool, { schema }) : null;
+export const isDatabaseConfigured = db !== null;
 
 export * from "./schema";

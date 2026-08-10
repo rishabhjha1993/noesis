@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import OpenAI from "openai";
-import { runAnalysisPipeline, type NoesisAnalysisResult } from "./analysisPipeline";
+import { runAnalysisPipelineDetailed, type NoesisAnalysisResult } from "./analysisPipeline";
 import { computeCacheKey, getOrComputeAnalysis } from "./analysisCache";
 import { logger } from "./logger";
 
@@ -49,12 +49,17 @@ export function startAnalysisJob(
   jobs.set(analysisId, { status: "pending", createdAt: Date.now() });
 
   const { cacheKey, imageHash } = computeCacheKey(imageDataUrl);
+  const shortHash = imageHash.slice(0, 12);
+  logger.info({ analysis_id: analysisId, cache_identifier: shortHash, timestamp: new Date().toISOString() }, "[Noesis] analysis job accepted");
   const openai = new OpenAI({ apiKey });
 
-  void getOrComputeAnalysis(cacheKey, imageHash, () =>
-    runAnalysisPipeline(openai, imageDataUrl),
-  )
-    .then(({ result: analysis, cacheHit }) => {
+  void getOrComputeAnalysis(cacheKey, imageHash, async () => {
+    const detailed = await runAnalysisPipelineDetailed(openai, imageDataUrl);
+    logger.info({ cache_identifier: shortHash, ...detailed.metrics }, "[Noesis] cold analysis metrics");
+    return detailed.analysis;
+  })
+    .then(({ result: analysis, cacheHit, metrics }) => {
+      logger.info({ analysis_id: analysisId, ...metrics, success: true }, "[Noesis] analysis job completed");
       if (!jobs.has(analysisId)) return; // expired meanwhile
       jobs.set(analysisId, {
         status: "done",
@@ -64,7 +69,7 @@ export function startAnalysisJob(
       });
     })
     .catch((err: unknown) => {
-      logger.error({ err, analysisId }, "Image analysis failed");
+      logger.error({ err, analysisId, cache_identifier: shortHash, success: false }, "Image analysis failed");
       if (!jobs.has(analysisId)) return;
       jobs.set(analysisId, {
         status: "error",

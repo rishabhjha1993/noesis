@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { AnalyzeImageBody } from "@workspace/api-zod";
-import { startAnalysisJob, getAnalysisJob } from "../lib/analysisJobs";
+import { getDiscoveryJob, startDiscoveryJob } from "../lib/discoveryJobs";
 import {
   analysisRateLimit,
   decodedImageBytes,
@@ -9,12 +9,7 @@ import {
 
 const router: IRouter = Router();
 
-// Starts an analysis job and returns its id immediately. The pipeline takes
-// ~2 minutes, which exceeds the ~120s proxy limit on browser requests, so
-// the client polls GET /analyze/:analysisId for the result.
-//
-// Cache hits (same image previously analyzed) complete in milliseconds.
-router.post("/analyze", analysisRateLimit, (req, res) => {
+router.post("/discovery", analysisRateLimit, (req, res) => {
   const parsedBody = AnalyzeImageBody.safeParse(req.body);
   if (!parsedBody.success) {
     res.status(400).json({ error: "image_data_url is required" });
@@ -44,36 +39,37 @@ router.post("/analyze", analysisRateLimit, (req, res) => {
 
   const apiKey = process.env["OPENAI_API_KEY"];
   if (!apiKey) {
-    res.status(502).json({ error: "Analysis service is not configured" });
+    res.status(502).json({ error: "Discovery service is not configured" });
     return;
   }
 
-  const started = startAnalysisJob(apiKey, image_data_url);
+  const started = startDiscoveryJob(apiKey, image_data_url);
   if ("busy" in started) {
     res.status(503).json({
-      error: "The analysis service is busy. Please try again in a moment.",
+      error: "The discovery lab is busy. Please try again in a moment.",
     });
     return;
   }
-  res.status(202).json({ analysis_id: started.analysisId });
+  res.status(202).json({ discovery_id: started.discoveryId });
 });
 
-router.get("/analyze/:analysisId", (req, res) => {
-  // Must not be cached — the status transitions from pending → done/error.
-  res.setHeader("Cache-Control", "no-store");
-
-  const job = getAnalysisJob(req.params.analysisId);
+router.get("/discovery/:discoveryId", (req, res) => {
+  const job = getDiscoveryJob(req.params.discoveryId);
   if (!job) {
-    res.status(404).json({ error: "Unknown or expired analysis" });
+    res.status(404).json({ error: "Unknown or expired discovery run" });
     return;
   }
   if (job.status === "pending") {
     res.json({ status: "pending" });
   } else if (job.status === "done") {
-    res.setHeader("X-Noesis-Cache", job.cacheHit ? "HIT" : "MISS");
-    res.json({ status: "done", analysis: job.analysis });
+    res.setHeader("X-Noesis-Discovery-Cache", job.cacheHit ? "HIT" : "MISS");
+    res.json({ status: "done", result: job.result, cache_hit: job.cacheHit });
   } else {
-    res.json({ status: "error", error: job.error });
+    res.json({
+      status: "error",
+      error: job.error,
+      diagnostic: job.diagnostic,
+    });
   }
 });
 

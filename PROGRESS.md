@@ -6,7 +6,7 @@
 
 ## Current Product State
 
-The legacy Noesis experience works as a standalone full-stack Node service. The React upload/result UI, Express API, asynchronous analysis jobs and polling, deterministic evidence computation, OpenAI analysis pipeline, cache support, and evaluation infrastructure are preserved. Platform-independent production serving, minimum public-safety controls, instrumentation, and evaluation infrastructure are checkpointed in Git and deployed. Discovery Engine V0 now exists as a parallel, experimental branch path at `/discovery-lab`; it is committed and pushed but has not been deployed or qualitatively evaluated yet. The lab can copy a complete safe eval JSON projection of a completed run for human review.
+The legacy Noesis experience works as a standalone full-stack Node service. The React upload/result UI, Express API, asynchronous analysis jobs and polling, deterministic evidence computation, OpenAI analysis pipeline, cache support, and evaluation infrastructure are preserved. Platform-independent production serving, minimum public-safety controls, instrumentation, and evaluation infrastructure are checkpointed in Git and deployed. Discovery Engine V1 now exists as the parallel, experimental branch path at `/discovery-lab`; it is committed and pushed but has not been deployed or qualitatively evaluated on real visuals yet. The lab can copy a complete safe eval JSON projection of a completed run for human review.
 
 ## Live Deployment
 
@@ -21,7 +21,7 @@ The legacy Noesis experience works as a standalone full-stack Node service. The 
 
 ## Current Milestone
 
-Discovery Engine V0 is implemented, technically verified, and has now been qualitatively exercised on a geological map, Noordoostpolder satellite imagery, and a Pantheon section. The first repeated bottleneck is verified identity context inside Stage 2 research.
+Discovery Engine V1 verified identity context is implemented and technically verified. The next milestone is a controlled V0-vs-V1 rerun of the Noordoostpolder and Pantheon inputs.
 
 ## Completed
 
@@ -38,11 +38,15 @@ Discovery Engine V0 is implemented, technically verified, and has now been quali
 - Focused Discovery V0 fixtures and mocked model-call tests requiring no paid API calls.
 - Full eval JSON copy support for completed `/discovery-lab` runs, committed and pushed as `995e1cd`; no Discovery intelligence behavior changed.
 - Initial qualitative V0 evaluation across a geological map, Noordoostpolder satellite imagery, and a Pantheon section.
+- Discovery Engine V1 verified identity context committed and pushed as `afbfe2b`.
+- Stage 1 optional visually grounded identity hypotheses and per-candidate identity-context-needed flags.
+- At most one conditional Terra identity-verification operation inside Stage 2, with verified context reused only for mapped, already-approved visual questions.
+- Strict verified/unverified/conflicted identity handling, source validation, anti-similarity safeguards, V1 instrumentation, safe eval artifacts, and `discovery-engine-v1` cache identity.
 
 ## In Progress
 
-- Discovery V1 verified-identity-context work is the next scoped implementation; it has not started in this checkpoint.
-- Ranking/filler suppression remains explicitly out of scope until separately evaluated.
+- No implementation work is currently in progress.
+- Discovery V1 awaits the controlled Noordoostpolder and Pantheon rerun; ranking/filler suppression remains explicitly out of scope.
 
 ## Verification
 
@@ -67,10 +71,15 @@ Latest verified on 2026-08-10:
 - Geological map V0 eval: the intended visible-trigger → question → research → discovery loop worked and produced at least two useful image-dependent discoveries; weaker filler suggested a future ranking question, but no ranking change is authorized yet.
 - Noordoostpolder V0 eval: Stage 1 grounded six strong research candidates in visible engineered boundaries, parcel geometries, striped tracts, settlement structure, an isolated circle, and a bright rectilinear complex. All six Terra calls returned `insufficient`; the unresolved circular feature showed that strong visual questions can lack enough verified geographic identity. The run took about 141 seconds, cost about $0.277, used about 72k Stage 2 tokens, and produced no researched final discovery.
 - Pantheon V0 eval: the first job failed transiently without a diagnosable sanitized cause; the retry succeeded. Stage 1 and the coffer-geometry discovery were strong, but research identity failures included an unsupported Church of the Holy Sepulchre match and an unrelated drawing sharing `COVPE/LONGITVDINALE` typography being treated as evidence about the uploaded figure. The successful run took about 183 seconds, cost about $0.392, and used about 108k Stage 2 tokens.
+- Discovery V1 typecheck: passed across all workspace projects.
+- Discovery V1 tests: 47/47 total repository tests passed, including mocked no-identity, verify-once, verified reuse, unverified/conflicted safety, exact-question restriction, source validation, typography-only rejection, downstream hypothesis withholding, eval export, legacy route, and V1 cache-isolation coverage.
+- Discovery V1 full build: passed for the API server, Noesis frontend, and mockup sandbox; the existing non-fatal Vite sourcemap warning remains.
+- Discovery V1 local runtime: a no-cost mocked verified-identity result completed in `/discovery-lab`; V1 identity status/reuse instrumentation rendered, `Copy full eval JSON` reached `Copied` after its `JSON.parse` guard, and `/` rendered the unchanged legacy upload UI with no browser warnings or errors.
+- Discovery V1 paid model call: not run. Real identity accuracy, research answer rate, quality, latency, and cost remain intentionally unevaluated until the controlled rerun.
 
 ## Latest Stable Commit
 
-`995e1cd` — Discovery V0 full eval JSON copy support and verification checkpoint.
+`afbfe2b` — Discovery Engine V1 verified identity context and technical verification checkpoint.
 
 ## Important Decisions
 
@@ -78,15 +87,17 @@ Latest verified on 2026-08-10:
 - The app runs without Postgres, with an explicit warning and no persistent cache; setting `DATABASE_URL` restores persistent cache behavior.
 - `OPENAI_API_KEY` is configured in Railway and must remain server-only.
 - `NOESIS_ACCESS_CODE` is optional. Without it, production remains public but analysis starts are rate-limited.
-- Existing prompts, model allocation, reasoning levels, token limits, schemas, and legacy analysis behavior remain unchanged.
+- Legacy prompts, model allocation, reasoning levels, token limits, schemas, and analysis behavior remain unchanged. V1 changes only the parallel Discovery prompts/contracts needed for verified identity context.
 - Discovery quality must remain visually triggered and return the user to the uploaded image.
-- Discovery V0 has exactly three conceptual stages: Sol vision grounding/question formation, selectively gated Terra web research, and text-only Sol discovery synthesis.
-- All three V0 stages use medium reasoning. Stage 2 receives only Stage 1-approved text questions and never receives the image.
-- Discovery V0 uses the independent `discovery-engine-v0` in-memory cache identity and cannot read or write legacy analysis cache entries.
+- Discovery retains exactly three conceptual stages: Sol vision grounding/question formation, selectively gated Terra web research, and text-only Sol discovery synthesis. Identity verification is a conditional substep inside Stage 2, not a fourth stage or agent.
+- All three Discovery stages use medium reasoning. Stage 2 receives only Stage 1-approved text questions and never receives the image.
+- Discovery V1 uses the independent `discovery-engine-v1` in-memory cache identity and cannot collide with V0 or legacy analysis cache entries.
 - `/discovery-lab` remains outside normal public navigation and does not replace `/`.
-- The copied eval JSON reuses the validated V0 run structure, adds job/cache identity, and omits reasoning-token counts and internal-only fields; it does not alter stage execution or output schemas.
+- The copied eval JSON reuses the validated Discovery run structure, adds job/cache identity, and omits reasoning-token counts and internal-only fields.
 - The first evidence-backed V1 hypothesis is narrow: Stage 1 already notices valuable image-specific questions, while Stage 2 often lacks verified entity, location, or object identity needed to research those questions safely and efficiently.
-- Identity resolution, if implemented, must remain a conditional substep inside Stage 2 and may only support questions already triggered by visible evidence.
+- Identity resolution remains a conditional substep inside Stage 2 and may only support questions already triggered by visible evidence.
+- V1 runs identity verification only when a gated candidate explicitly needs it and Stage 1 supplied a grounded relevant hypothesis. Verified context is reused only for mapped questions; unverified/conflicted hypotheses are withheld from candidate research and Stage 3.
+- Shared typography and generic similarity are explicitly insufficient verification bases; verified identity requires validated sources and at least one stronger exact-match basis.
 
 ## Known Issues / Risks
 
@@ -100,7 +111,9 @@ Latest verified on 2026-08-10:
 - Discovery cost instrumentation uses the existing token-pricing convention and does not add separately metered web-search tool fees, if applicable.
 - Failed Discovery jobs return a sanitized error and are logged, but partial per-stage metrics are not returned to the lab UI.
 - Shared typography, motifs, generic structures, or partial visual similarity can produce false exact-object matches; the Pantheon run demonstrates that this is a research-integrity risk rather than only a ranking problem.
+- V1 identity verification is limited to one operation and one verified hypothesis per run; multiple genuinely distinct identities in one image remain outside this first implementation.
+- No real-model V1 call has yet confirmed how reliably Sol proposes identity hypotheses or Terra classifies verified versus unverified/conflicted cases.
 
 ## Next Step
 
-Implement the smallest Discovery V1 change for conditional verified identity context: Stage 1 identity hypotheses, at most one Stage 2 identity-verification operation when a gated question needs it, safe reuse of verified context, and V1-specific instrumentation/cache identity. Preserve the three-stage architecture and do not address ranking or other hypotheses.
+Rerun the same Noordoostpolder and Pantheon inputs and compare V0 vs V1 for identity accuracy, research answer rate, discovery quality, latency and cost.

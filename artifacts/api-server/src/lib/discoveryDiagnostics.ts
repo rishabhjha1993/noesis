@@ -3,10 +3,12 @@ import type {
   DiscoveryBatchResearchMetrics,
   DiscoveryPipelineResult,
 } from "./discoveryPipeline";
-import type { DiscoveryBatchValidationIssue } from "./discoveryBatchResearch";
+import {
+  DISCOVERY_VALIDATION_DIAGNOSTICS_VERSION,
+  type DiscoveryBatchValidationIssue,
+} from "./discoveryBatchResearch";
 
-export const DISCOVERY_VALIDATION_DIAGNOSTICS_VERSION =
-  "batched-candidate-validation-v1";
+export { DISCOVERY_VALIDATION_DIAGNOSTICS_VERSION };
 
 type LegacyBatchDiagnostics = {
   validation_issues?: DiscoveryBatchValidationIssue[];

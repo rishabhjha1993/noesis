@@ -7,6 +7,7 @@ import {
   DISCOVERY_STAGE3_JSON_SCHEMA,
   DiscoveryStage1Schema,
   evaluateResearchGate,
+  identityApplicableCandidateIds,
   validateIdentityVerification,
   validateDiscoveryOutput,
   validateResearchResults,
@@ -20,6 +21,7 @@ import {
 } from "./discoveryContracts";
 import {
   DISCOVERY_BATCHED_RESEARCH_JSON_SCHEMA,
+  DISCOVERY_VALIDATION_DIAGNOSTICS_VERSION,
   DiscoveryBatchValidationError,
   buildDiscoveryBatchContext,
   validateDiscoveryBatchResults,
@@ -120,6 +122,11 @@ Rules:
 - explanation is concise and user-facing; never expose private chain-of-thought.
 
 Return only the strict JSON object.`;
+
+const BATCHED_STAGE3_PROMPT = STAGE3_PROMPT.replace(
+  "- provenance is researched only when an answered research result or verified identity result materially contributes.",
+  "- provenance is researched only when candidate_ids include an answered research result or a candidate explicitly listed in the verified identity result's applicable_candidate_ids.",
+);
 
 export interface DiscoveryUsageMetrics {
   model: string;
@@ -269,6 +276,15 @@ export interface DiscoveryFailureDiagnostic {
   research_validation_category?: DiscoveryBatchValidationCategory;
   safe_validation_message?: string;
   affected_candidate_ids?: string[];
+  validation_diagnostics_version?: string;
+  validation_issues?: DiscoveryBatchValidationIssue[];
+  batch_candidate_state?: {
+    attempted_candidate_ids: string[];
+    answered_candidate_ids: string[];
+    insufficient_candidate_ids: string[];
+    invalid_candidate_ids: string[];
+    missing_candidate_ids: string[];
+  };
   partial_metrics: {
     stage1: DiscoverySafeStageMetrics | null;
     identity_verification:
@@ -310,6 +326,15 @@ interface DiscoveryExecutionState {
   researchValidationCategory?: DiscoveryBatchValidationCategory;
   safeValidationMessage?: string;
   affectedCandidateIds?: string[];
+  batchValidationDiagnostics?: {
+    validation_diagnostics_version: string;
+    validation_issues: DiscoveryBatchValidationIssue[];
+    attempted_candidate_ids: string[];
+    answered_candidate_ids: string[];
+    insufficient_candidate_ids: string[];
+    invalid_candidate_ids: string[];
+    missing_candidate_ids: string[];
+  };
   stage3: DiscoveryStageMetrics | null;
 }
 
@@ -581,6 +606,25 @@ function createFailureDiagnostic(
       : {}),
     ...(state.affectedCandidateIds
       ? { affected_candidate_ids: state.affectedCandidateIds }
+      : {}),
+    ...(state.batchValidationDiagnostics
+      ? {
+          validation_diagnostics_version:
+            state.batchValidationDiagnostics.validation_diagnostics_version,
+          validation_issues: state.batchValidationDiagnostics.validation_issues,
+          batch_candidate_state: {
+            attempted_candidate_ids:
+              state.batchValidationDiagnostics.attempted_candidate_ids,
+            answered_candidate_ids:
+              state.batchValidationDiagnostics.answered_candidate_ids,
+            insufficient_candidate_ids:
+              state.batchValidationDiagnostics.insufficient_candidate_ids,
+            invalid_candidate_ids:
+              state.batchValidationDiagnostics.invalid_candidate_ids,
+            missing_candidate_ids:
+              state.batchValidationDiagnostics.missing_candidate_ids,
+          },
+        }
       : {}),
     partial_metrics: {
       stage1: state.stage1 ? safeStage(state.stage1) : null,
@@ -993,6 +1037,15 @@ async function runBatchedSelectiveResearchWithState(
   state.attemptedResearchCalls += 1;
   state.researchFailureScope = "batch_api";
   state.affectedCandidateIds = gatedCandidates.map((candidate) => candidate.id);
+  state.batchValidationDiagnostics = {
+    validation_diagnostics_version: DISCOVERY_VALIDATION_DIAGNOSTICS_VERSION,
+    validation_issues: [],
+    attempted_candidate_ids: gatedCandidates.map((candidate) => candidate.id),
+    answered_candidate_ids: [],
+    insufficient_candidate_ids: [],
+    invalid_candidate_ids: [],
+    missing_candidate_ids: [],
+  };
   const started = Date.now();
   const response = await openai.responses.create({
     model: DISCOVERY_STAGE2_MODEL,
@@ -1036,6 +1089,20 @@ async function runBatchedSelectiveResearchWithState(
       state.affectedCandidateIds = error.candidateId
         ? [error.candidateId]
         : gatedCandidates.map((candidate) => candidate.id);
+      state.batchValidationDiagnostics = {
+        ...state.batchValidationDiagnostics!,
+        validation_issues: error.candidateId
+          ? [
+              {
+                candidate_id: error.candidateId,
+                question_id: error.questionId ?? "unknown",
+                validation_category: error.validationCategory,
+                safe_message: error.message,
+              },
+            ]
+          : [],
+        invalid_candidate_ids: error.candidateId ? [error.candidateId] : [],
+      };
     }
     throw error;
   }
@@ -1045,6 +1112,19 @@ async function runBatchedSelectiveResearchWithState(
   ).length;
   const insufficientCandidates =
     validatedBatch.results.length - answeredCandidates;
+  state.batchValidationDiagnostics = {
+    validation_diagnostics_version: DISCOVERY_VALIDATION_DIAGNOSTICS_VERSION,
+    validation_issues: validatedBatch.validation_issues,
+    attempted_candidate_ids: gatedCandidates.map((candidate) => candidate.id),
+    answered_candidate_ids: validatedBatch.results
+      .filter((result) => result.status === "answered")
+      .map((result) => result.candidate_id),
+    insufficient_candidate_ids: validatedBatch.results
+      .filter((result) => result.status === "insufficient")
+      .map((result) => result.candidate_id),
+    invalid_candidate_ids: validatedBatch.invalid_candidate_ids,
+    missing_candidate_ids: validatedBatch.missing_candidate_ids,
+  };
   state.researchFailureScope = undefined;
   state.researchValidationCategory = undefined;
   state.safeValidationMessage = undefined;
@@ -1111,6 +1191,32 @@ export async function runSelectiveResearch(
   } catch (error) {
     throw new DiscoveryPipelineError(error, state);
   }
+}
+
+export function createStage3Evidence(
+  stage1: DiscoveryStage1,
+  researchResults: DiscoveryResearchResult[],
+  identityVerification: DiscoveryIdentityVerification | null,
+) {
+  const answeredResearchResults = researchResults.filter(
+    (result) => result.status === "answered",
+  );
+  const identityContext =
+    identityVerification?.status === "verified"
+      ? {
+          ...identityVerification,
+          applicable_candidate_ids: identityApplicableCandidateIds(
+            stage1,
+            identityVerification,
+          ),
+        }
+      : identityVerification
+        ? { status: identityVerification.status }
+        : null;
+  return {
+    research_results: answeredResearchResults,
+    identity_verification: identityContext,
+  };
 }
 
 async function runDiscoveryPipelineWithState(
@@ -1185,12 +1291,22 @@ async function runDiscoveryPipelineWithState(
 
   state.stageReached = "stage3";
   const stage3Started = Date.now();
-  const stage3IdentityContext =
-    research.identityVerification.result?.status === "verified"
-      ? research.identityVerification.result
-      : research.identityVerification.result
-        ? { status: research.identityVerification.result.status }
-        : null;
+  const stage3Evidence =
+    variant === "v1-batched-research"
+      ? createStage3Evidence(
+          stage1,
+          research.results,
+          research.identityVerification.result,
+        )
+      : {
+          research_results: research.results,
+          identity_verification:
+            research.identityVerification.result?.status === "verified"
+              ? research.identityVerification.result
+              : research.identityVerification.result
+                ? { status: research.identityVerification.result.status }
+                : null,
+        };
   const stage3Grounding = {
     ...stage1,
     identity_hypotheses:
@@ -1215,7 +1331,13 @@ async function runDiscoveryPipelineWithState(
       },
     },
     messages: [
-      { role: "system", content: STAGE3_PROMPT },
+      {
+        role: "system",
+        content:
+          variant === "v1-batched-research"
+            ? BATCHED_STAGE3_PROMPT
+            : STAGE3_PROMPT,
+      },
       {
         role: "user",
         content: [
@@ -1226,10 +1348,10 @@ async function runDiscoveryPipelineWithState(
           "[]",
           "",
           "VALIDATED RESEARCH RESULTS:",
-          JSON.stringify(research.results),
+          JSON.stringify(stage3Evidence.research_results),
           "",
           "IDENTITY VERIFICATION RESULT:",
-          JSON.stringify(stage3IdentityContext),
+          JSON.stringify(stage3Evidence.identity_verification),
         ].join("\n"),
       },
     ],

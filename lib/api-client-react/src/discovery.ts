@@ -286,6 +286,15 @@ export interface DiscoveryFailureDiagnostic {
   research_validation_category?: DiscoveryBatchValidationIssue["validation_category"];
   safe_validation_message?: string;
   affected_candidate_ids?: string[];
+  validation_diagnostics_version?: string;
+  validation_issues?: DiscoveryBatchValidationIssue[];
+  batch_candidate_state?: {
+    attempted_candidate_ids: string[];
+    answered_candidate_ids: string[];
+    insufficient_candidate_ids: string[];
+    invalid_candidate_ids: string[];
+    missing_candidate_ids: string[];
+  };
   partial_metrics: {
     stage1: DiscoverySafeStageMetrics | null;
     identity_verification:

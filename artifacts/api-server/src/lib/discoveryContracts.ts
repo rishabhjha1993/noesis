@@ -444,6 +444,25 @@ export function validateIdentityVerification(
   });
 }
 
+export function identityApplicableCandidateIds(
+  stage1: DiscoveryStage1,
+  identityVerification: DiscoveryIdentityVerification | null,
+): string[] {
+  if (identityVerification?.status !== "verified") return [];
+  const hypothesis = stage1.identity_hypotheses.find(
+    (item) => item.id === identityVerification.hypothesis_id,
+  );
+  if (!hypothesis?.verification_would_help) return [];
+  const relevantQuestionIds = new Set(hypothesis.relevant_question_ids);
+  return stage1.candidates
+    .filter(
+      (candidate) =>
+        candidate.identity_context_needed &&
+        relevantQuestionIds.has(candidate.question_id),
+    )
+    .map((candidate) => candidate.id);
+}
+
 export function validateDiscoveryOutput(
   stage1: DiscoveryStage1,
   researchResults: DiscoveryResearchResult[],
@@ -457,6 +476,9 @@ export function validateDiscoveryOutput(
   );
   const research = new Map(
     researchResults.map((result) => [result.candidate_id, result]),
+  );
+  const identityApplicableCandidates = new Set(
+    identityApplicableCandidateIds(stage1, identityVerification),
   );
   const discoveryIds = new Set<string>();
   const discoveryCandidates: Record<string, string[]> = {};
@@ -492,17 +514,9 @@ export function validateDiscoveryOutput(
       }
     }
     if (identityVerification?.status === "verified") {
-      const hypothesis = stage1.identity_hypotheses.find(
-        (item) => item.id === identityVerification.hypothesis_id,
+      const identityIsRelevant = draft.candidate_ids.some((candidateId) =>
+        identityApplicableCandidates.has(candidateId),
       );
-      const identityIsRelevant = draft.candidate_ids.some((candidateId) => {
-        const candidate = candidates.get(candidateId);
-        return Boolean(
-          candidate?.identity_context_needed &&
-          hypothesis?.verification_would_help &&
-          hypothesis.relevant_question_ids.includes(candidate.question_id),
-        );
-      });
       if (identityIsRelevant) {
         for (const source of identityVerification.sources) {
           allowedSources.add(source.url);

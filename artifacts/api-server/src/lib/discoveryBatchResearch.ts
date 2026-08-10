@@ -9,6 +9,9 @@ import {
   type DiscoveryStage1,
 } from "./discoveryContracts";
 
+export const DISCOVERY_VALIDATION_DIAGNOSTICS_VERSION =
+  "batched-candidate-validation-v1";
+
 const NonEmptyText = z.string().trim().min(1);
 
 const BatchedResearchDraftSchema = z

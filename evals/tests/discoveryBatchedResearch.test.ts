@@ -11,10 +11,12 @@ import type {
   DiscoverySource,
   DiscoveryStage1,
 } from "../../artifacts/api-server/src/lib/discoveryContracts";
+import { validateDiscoveryOutput } from "../../artifacts/api-server/src/lib/discoveryContracts";
 import {
   DISCOVERY_BATCHED_RESEARCH_ENGINE_VERSION,
   DISCOVERY_ENGINE_VERSION,
   DiscoveryPipelineError,
+  createStage3Evidence,
   runBatchedSelectiveResearch,
   runDiscoveryPipeline,
 } from "../../artifacts/api-server/src/lib/discoveryPipeline";
@@ -23,7 +25,10 @@ import {
   DISCOVERY_VALIDATION_DIAGNOSTICS_VERSION,
   normalizeDiscoveryValidationDiagnostics,
 } from "../../artifacts/api-server/src/lib/discoveryDiagnostics";
-import { createDiscoveryDoneJob } from "../../artifacts/api-server/src/lib/discoveryJobs";
+import {
+  createDiscoveryDoneJob,
+  createDiscoveryErrorJob,
+} from "../../artifacts/api-server/src/lib/discoveryJobs";
 import { createDiscoveryStatusPayload } from "../../artifacts/api-server/src/routes/discovery";
 import {
   createDiscoveryEvalPayload,
@@ -163,6 +168,29 @@ function batchResult(
   };
 }
 
+function finalDiscovery(
+  candidateId: string,
+  provenance: "seen" | "researched",
+  sources: DiscoverySource[],
+) {
+  return {
+    id: "disc-001",
+    type: "local" as const,
+    title: "The visible geometry has a specific explanation",
+    visual_trigger: "The isolated geometry interrupts the surrounding pattern.",
+    observation: "A bounded feature contrasts with the adjacent parcels.",
+    discovery: "The contrast changes how the visible feature is interpreted.",
+    why_it_matters: "It explains why the visible anomaly is consequential.",
+    explanation: "The evidence is tied to the selected visual candidate.",
+    reinterpretation: "Look back at the anomaly as part of the larger system.",
+    region_ids: ["r1"],
+    provenance,
+    confidence: 0.8,
+    sources,
+    candidate_ids: [candidateId],
+  };
+}
+
 function response(outputText: string, sourceUrls: string[] = []) {
   let citationSearchStart = 0;
   return {
@@ -272,6 +300,7 @@ function fakeBatchedClient(options?: {
   batchOutput?: unknown;
   batchRawOutput?: string;
   batchError?: Error;
+  stage3Output?: unknown;
   captured?: CapturedResponseRequest[];
   chatRequests?: Array<{ messages?: unknown }>;
 }) {
@@ -285,7 +314,7 @@ function fakeBatchedClient(options?: {
           chatCall += 1;
           return chatCall === 1
             ? chatResponse(stage1)
-            : chatResponse({ discoveries: [] });
+            : chatResponse(options?.stage3Output ?? { discoveries: [] });
         },
       },
     },
@@ -846,6 +875,157 @@ test("batched failure diagnostics distinguish API, schema, and candidate failure
     candidate.diagnostic.engine_version,
     DISCOVERY_BATCHED_RESEARCH_ENGINE_VERSION,
   );
+});
+
+test("candidate issues survive final-validation failure, failed job storage, and API serialization", async () => {
+  const malformed = {
+    ...batchResult(gatedCandidates[1]!),
+    unexpected: "field",
+  };
+  const failure = await getBatchFailure({
+    batchOutput: {
+      results: [batchResult(gatedCandidates[0]!), malformed],
+    },
+    stage3Output: {
+      discoveries: [finalDiscovery("c2", "researched", [])],
+    },
+  });
+  assert.equal(failure.diagnostic.failed_stage, "validation");
+  assert.equal(failure.diagnostic.last_completed_stage, "stage3");
+  assert.equal(failure.diagnostic.category, "source_validation");
+  assert.equal(
+    failure.diagnostic.validation_diagnostics_version,
+    DISCOVERY_VALIDATION_DIAGNOSTICS_VERSION,
+  );
+  assert.deepEqual(failure.diagnostic.validation_issues, [
+    {
+      candidate_id: "c2",
+      question_id: "q2",
+      validation_category: "schema",
+      safe_message:
+        "The candidate result did not match the strict batch schema.",
+    },
+  ]);
+  assert.deepEqual(failure.diagnostic.batch_candidate_state, {
+    attempted_candidate_ids: ["c1", "c2"],
+    answered_candidate_ids: ["c1"],
+    insufficient_candidate_ids: ["c2"],
+    invalid_candidate_ids: ["c2"],
+    missing_candidate_ids: [],
+  });
+
+  const job = createDiscoveryErrorJob(failure, Date.now());
+  const apiPayload = JSON.parse(
+    JSON.stringify(createDiscoveryStatusPayload(job)),
+  ) as ReturnType<typeof createDiscoveryStatusPayload>;
+  assert.equal(apiPayload.status, "error");
+  if (apiPayload.status !== "error") assert.fail("Expected an error payload");
+  assert.deepEqual(
+    apiPayload.diagnostic.validation_issues,
+    failure.diagnostic.validation_issues,
+  );
+  assert.deepEqual(
+    apiPayload.diagnostic.batch_candidate_state,
+    failure.diagnostic.batch_candidate_state,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(apiPayload),
+    /reasoning_tokens|raw_response|stack|api[_-]?key|authorization|prompt/i,
+  );
+});
+
+test("Stage 3 receives only answered research and explicit identity applicability", () => {
+  const evidence = createStage3Evidence(
+    stage1Fixture,
+    gatedCandidates.map((candidate) => ({
+      candidate_id: candidate.id,
+      question_id: candidate.question_id,
+      question: candidate.investigation_question,
+      status: "insufficient" as const,
+      finding: "The candidate research result failed validation.",
+      sources: [],
+    })),
+    verifiedIdentity,
+  );
+  assert.deepEqual(evidence.research_results, []);
+  assert.deepEqual(
+    evidence.identity_verification?.status === "verified"
+      ? evidence.identity_verification.applicable_candidate_ids
+      : [],
+    ["c1"],
+  );
+});
+
+test("identity evidence cannot satisfy a candidate outside its explicit applicability", () => {
+  const invalidDraft = {
+    discoveries: [finalDiscovery("c2", "researched", verifiedIdentity.sources)],
+  };
+  assert.throws(
+    () =>
+      validateDiscoveryOutput(
+        stage1Fixture,
+        [],
+        invalidDraft,
+        verifiedIdentity,
+      ),
+    /no applicable validated research sources/,
+  );
+});
+
+test("insufficient batch research still permits a valid seen-only discovery", async () => {
+  const result = await runDiscoveryPipeline(
+    fakeBatchedClient({
+      batchOutput: {
+        results: gatedCandidates.map((candidate) =>
+          batchResult(candidate, "insufficient"),
+        ),
+      },
+      stage3Output: {
+        discoveries: [finalDiscovery("c1", "seen", [])],
+      },
+    }),
+    "data:image/png;base64,YWJj",
+    { variant: "v1-batched-research" },
+  );
+  assert.equal(result.discoveries[0]?.provenance, "seen");
+});
+
+test("mixed valid and invalid research exposes only answered evidence to Stage 3", async () => {
+  const chatRequests: Array<{ messages?: unknown }> = [];
+  const result = await runDiscoveryPipeline(
+    fakeBatchedClient({
+      batchOutput: {
+        results: [
+          batchResult(gatedCandidates[0]!),
+          { ...batchResult(gatedCandidates[1]!), unexpected: "field" },
+        ],
+      },
+      stage3Output: {
+        discoveries: [
+          finalDiscovery("c1", "researched", [
+            { title: "c1 source", url: "https://example.com/c1" },
+          ]),
+        ],
+      },
+      chatRequests,
+    }),
+    "data:image/png;base64,YWJj",
+    { variant: "v1-batched-research" },
+  );
+  assert.equal(result.discoveries[0]?.provenance, "researched");
+  assert.deepEqual(
+    result.inspection.research_results.map((research) => research.status),
+    ["answered", "insufficient"],
+  );
+  const stage3Request = chatRequests[1] as {
+    messages?: Array<{ role?: string; content?: string }>;
+  };
+  const stage3Input =
+    stage3Request.messages?.find((message) => message.role === "user")
+      ?.content ?? "";
+  assert.match(stage3Input, /"status":"answered"/);
+  assert.doesNotMatch(stage3Input, /"status":"insufficient"/);
+  assert.doesNotMatch(stage3Input, /failed validation/);
 });
 
 test("batched metrics and full eval JSON expose comparison fields safely", async () => {

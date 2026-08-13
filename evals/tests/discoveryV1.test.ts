@@ -128,6 +128,7 @@ function unresolvedDraft(status: "unverified" | "conflicted") {
 interface CapturedRequest {
   input?: unknown;
   text?: unknown;
+  instructions?: unknown;
 }
 
 function response(outputText: string, sourceUrl?: string) {
@@ -261,6 +262,28 @@ test("identity verification runs at most once per Discovery run", async () => {
   );
   assert.equal(requests.filter((request) => request.text).length, 1);
   assert.equal(result.calls.length, 2);
+});
+
+test("identity generation contract states the status-dependent null invariant", async () => {
+  const requests: CapturedRequest[] = [];
+  await runSelectiveResearch(
+    fakeResearchClient(requests, unresolvedDraft("unverified")),
+    identityStage1,
+  );
+  const identityRequest = requests.find((request) => request.text);
+  assert.ok(identityRequest);
+  assert.match(
+    String(identityRequest.instructions),
+    /When status is verified, canonical_identity and identity_type must be populated\./,
+  );
+  assert.match(
+    String(identityRequest.instructions),
+    /When status is unverified or conflicted, canonical_identity, identity_type, and location must all be null/,
+  );
+  assert.match(
+    String(identityRequest.instructions),
+    /tentative, rejected, or conflicting possibilities only in verification_basis and match_evidence/,
+  );
 });
 
 test("identity verification receives only gated identity-dependent questions", async () => {
@@ -464,18 +487,50 @@ test("identity verification metrics record status, usage, cost, and reuse count"
   );
 });
 
-test("unverified identity cannot carry canonical identity fields", () => {
-  assert.throws(() =>
-    validateIdentityVerification(
-      identityStage1,
-      {
-        ...unresolvedDraft("unverified"),
-        canonical_identity: "Convenient nearest match",
-        identity_type: "place",
-      },
-      [],
-    ),
-  );
+test("verified identity requires canonical identity and type", () => {
+  for (const field of ["canonical_identity", "identity_type"] as const) {
+    assert.throws(() =>
+      validateIdentityVerification(
+        identityStage1,
+        { ...verifiedDraft, [field]: null },
+        [{ title: "Identity", url: "https://example.com/identity" }],
+      ),
+    );
+  }
+});
+
+test("unverified and conflicted identities pass only with null identity fields", () => {
+  for (const status of ["unverified", "conflicted"] as const) {
+    assert.equal(
+      validateIdentityVerification(identityStage1, unresolvedDraft(status), [])
+        .status,
+      status,
+    );
+  }
+});
+
+test("unverified and conflicted identities reject each populated identity field", () => {
+  const populatedValues = {
+    canonical_identity: "Convenient nearest match",
+    identity_type: "place" as const,
+    location: "Tentative location",
+  };
+  for (const status of ["unverified", "conflicted"] as const) {
+    for (const field of Object.keys(populatedValues) as Array<
+      keyof typeof populatedValues
+    >) {
+      assert.throws(() =>
+        validateIdentityVerification(
+          identityStage1,
+          {
+            ...unresolvedDraft(status),
+            [field]: populatedValues[field],
+          },
+          [],
+        ),
+      );
+    }
+  }
 });
 
 test("the full pipeline withholds unverified hypotheses from Stage 3", async () => {

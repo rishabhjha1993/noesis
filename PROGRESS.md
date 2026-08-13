@@ -21,7 +21,7 @@ The legacy Noesis experience works as a standalone full-stack Node service. The 
 
 ## Current Milestone
 
-Cost Experiment A is implemented and technically verified as the isolated `discovery-engine-v1-batched-research` variant. Current `discovery-engine-v1` remains the default and fixed non-inferiority baseline. A fully restarted controlled Chuquicamata run reached Stage 3 and then failed strict final source validation, while its failed-job response still omitted the candidate-level batch reasons. Failed-job observability and the proven batched Stage 3 evidence-applicability mismatch are fixed in `ff4ba30`. The next milestone is one final controlled batched-only rerun to capture the real candidate reasons and a judgeable result.
+Cost Experiment A is closed and failed its non-inferiority requirement. The final controlled Chuquicamata batched run had no validated answered research, produced one final discovery, and provided no total-cost advantage over the retained baseline. Baseline `discovery-engine-v1` remains the fixed default and quality reference; `discovery-engine-v1-batched-research` remains preserved as isolated historical experiment code. The next milestone is isolated Experiment C1: Luna replaces Terra for per-candidate research calls only.
 
 ## Completed
 
@@ -62,11 +62,14 @@ Cost Experiment A is implemented and technically verified as the isolated `disco
 - Failed-job batch diagnostics and the Stage 3 evidence contract were fixed and pushed as `ff4ba30`. Batch state now retains safe versioned candidate issues plus attempted, answered, insufficient, invalid, and missing candidate IDs through pipeline failure, in-memory failed-job storage, and `/api/discovery/:id` error serialization.
 - The Stage 3/final-validation mismatch was proven: the batched path labeled all results, including invalid candidates downgraded to `insufficient`, as validated research input and exposed verified identity globally, while final validation accepts only answered candidate sources and identity sources applicable to mapped candidate IDs. Batched Stage 3 now receives only answered research results and an explicit deterministic `applicable_candidate_ids` identity mapping derived from the same rule final validation uses.
 - Strict final source validation and candidate source-validation rules remain unchanged. Baseline V1, models, reasoning levels, research gate, ranking, and cache identities remain unchanged. No paid rerun was made after `ff4ba30`.
+- Cost Experiment A final controlled Chuquicamata result: `$0.3372475` total, `153592 ms`, Stage 1 `$0.099555`, identity verification `$0.06636`, batch candidate research `$0.1136375`, and Stage 3 `$0.057695`. Three research candidates were all invalid/insufficient, with zero answered candidates and one final discovery.
+- All three final batched candidate results failed strict candidate-local source validation with category `source_validation` and safe message `A claimed source was not cited within this candidate result.` The retained baseline cost approximately `$0.334017`, took approximately `166819 ms`, returned two answered and one insufficient research result, and retained two strong discoveries.
+- Cost Experiment A is formally **closed / failed**. Batching sometimes reduced the candidate-research component, but citation attribution was not reliable enough to preserve validated research and the final controlled run had worse intelligence with no total-cost advantage. No further paid batching runs or batching fixes are planned; the implementation and history remain preserved.
 
 ## In Progress
 
 - No implementation work is currently in progress.
-- One final same-image Chuquicamata batched-only rerun is pending after rebuilding and fully restarting the server. Reuse the existing baseline V1 result rather than rerunning it.
+- Experiment C1 implementation is next: isolated `gpt-5.6-luna` substitution for baseline per-candidate research only. No paid run is authorized during implementation.
 
 ## Verification
 
@@ -124,7 +127,7 @@ Latest verified on 2026-08-11:
 
 ## Latest Stable Commit
 
-`ff4ba30` — failed-job batched diagnostics and aligned Stage 3 evidence applicability.
+`ff4ba30` — failed-job batched diagnostics and aligned Stage 3 evidence applicability. Experiment A is now closed as failed; its documentation closure follows this checkpoint.
 
 ## Important Decisions
 
@@ -151,6 +154,7 @@ Latest verified on 2026-08-11:
 - Batch source validation uses the Responses API citation annotations, including their output-text spans, rather than treating all citations as a global pool. A source can validate only the candidate object containing that citation; known provider `utm_source=chatgpt.com` decoration is normalized without accepting unrelated URLs.
 - Local production backend changes require a process restart: `pnpm start` loads `artifacts/api-server/dist/index.mjs` once, while the same process can serve newly rebuilt frontend assets from disk. The `validation_diagnostics_version` marker must be present before a paid diagnostic rerun is trusted.
 - Batched Stage 3 receives only answered candidate research as validated research evidence. Verified identity includes deterministic `applicable_candidate_ids` computed by the same identity-to-candidate mapping used by final source validation; insufficient/invalid research remains available in inspection and metrics but is not presented as evidence.
+- Cost Experiment A is historical and closed. Do not spend further paid runs or implementation effort on batched Terra research unless a future task explicitly reopens it.
 
 ## Known Issues / Risks
 
@@ -167,8 +171,8 @@ Latest verified on 2026-08-11:
 - V1 identity verification is limited to one operation and one verified hypothesis per run; multiple genuinely distinct identities in one image remain outside this first implementation.
 - The three current real-world V1 samples are useful but limited; Minard is memorization-prone, and broader quality judgment remains human-led.
 - Pantheon demonstrated a source-entailment risk: reproduction or use by a modern source does not prove provenance of the underlying visual.
-- Chuquicamata established promising cost/latency evidence for batching, but no batched run is yet usable for quality comparison. The fully restarted controlled run failed only after paying for Stage 3, and its error response still omitted the candidate issues. The actual Terra candidate-validation reason remains unresolved pending one final controlled batched-only run with the `ff4ba30` failed-job contract.
+- Batched Terra research failed the fixed-baseline quality requirement on Chuquicamata because all three final candidate results failed candidate-local citation validation. This is retained experimental evidence, not an open debugging task.
 
 ## Next Step
 
-Rebuild and fully restart the local server, confirm a mocked failed status includes `validation_diagnostics_version: "batched-candidate-validation-v1"`, `validation_issues`, and `batch_candidate_state`, then run `discovery-engine-v1-batched-research` once on the exact same Chuquicamata image. Capture the full safe success or failed-job API JSON, per-candidate categories/messages and state, Stage 3 outcome, cost, latency, and source applicability; compare with the retained baseline without rerunning it or optimizing further.
+Implement and verify Experiment C1 as a single-variable, independently cached Luna-for-candidate-research variant. Do not run a paid model call, add fallback/escalation, begin C2–C5, or implement representation compression.

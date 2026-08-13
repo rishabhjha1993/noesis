@@ -21,7 +21,7 @@ The legacy Noesis experience works as a standalone full-stack Node service. The 
 
 ## Current Milestone
 
-Cost Experiment A is closed and failed its non-inferiority requirement. Experiment C1 is provisionally passed on Chuquicamata: the opt-in `discovery-engine-v1-luna-research` run improved recorded model-token cost, latency, research answer rate, and final-discovery count without a judged whole-product quality regression. Baseline `discovery-engine-v1` remains the fixed quality reference; C1 is not promoted permanently from one image. Accounting now uses current official Sol/Terra/Luna token rates and observed Responses `web_search_call` items. The next milestone is exactly one cold C1 Noordoostpolder run as the second quality gate.
+Cost Experiment A is closed and failed its non-inferiority requirement. Experiment C1 is provisionally passed on Chuquicamata: the opt-in `discovery-engine-v1-luna-research` run improved recorded model-token cost, latency, research answer rate, and final-discovery count without a judged whole-product quality regression. Baseline `discovery-engine-v1` remains the fixed quality reference; C1 is not promoted permanently from one image. Accounting now uses current official Sol/Terra/Luna token rates and observed Responses `web_search_call` items. The shared Terra identity-verification generation contract is aligned with its existing strict validator after an upstream Noordoostpolder abort. The next milestone remains exactly one cold C1 Noordoostpolder run as the second quality gate.
 
 ## Completed
 
@@ -74,6 +74,9 @@ Cost Experiment A is closed and failed its non-inferiority requirement. Experime
 - Human qualitative review found two strong C1 discoveries: the visible desert corridors as a bidirectional mine material/water cycle, and the colored tailings ponds as managed water-recovery infrastructure with appropriate restraint about color-specific contamination. The third waste-footprint discovery was useful but weaker. The retained Terra baseline's engineered-separation discovery remained stronger than C1's third result, but Stage 1 asked a different stochastic question; Luna did not fail that same research question.
 - Discovery cost accounting was corrected in `24a80ac`. Current official standard short-context rates are Sol `$5/$0.50/$30`, Terra `$2/$0.20/$12`, and Luna `$0.20/$0.02/$1.20` per million input/cached-input/output tokens. Returned Responses `web_search_call` items are counted at `$0.01` each.
 - Successful and failed-run metrics now separate `model_token_cost_usd`, `tool_cost_usd`, and `total_known_cost_usd`, retain `cost_usd`/`total_cost_usd` as backward-compatible total-known-cost aliases, expose observed web-search counts at call/stage/run levels, and preserve the safe eval projection without raw provider output.
+- Identity-verification generation-contract alignment was committed as `e24c4f0`. The existing flat Structured Outputs schema allowed nullable canonical identity fields independently of status, while the strict final Zod validator correctly rejected populated identity fields for `unverified` or `conflicted` results. Current official Structured Outputs does not support `if`/`then`/`else` and does not permit a root `anyOf`, so the shared Terra identity instructions now explicitly require populated canonical identity/type only for `verified`, require canonical identity/type/location all null for unresolved statuses, and confine tentative or rejected possibilities to the existing basis/evidence fields.
+- The strict final validator, verified source/evidence requirements, identity applicability, downstream withholding, Stage 1, candidate research, Stage 3, model allocation, reasoning, research gate, ranking, source validation, cache identities, and legacy `/` behavior were not changed. No invalid response is normalized, retried, or hidden.
+- C1 not evaluated: run aborted upstream during unchanged Terra identity verification before candidate research.
 
 ## In Progress
 
@@ -93,6 +96,11 @@ Latest verified on 2026-08-13:
 - Discovery accounting tests: 100/100 repository tests passed, including mocked multiple-search-call counting, current token rates, separate token/tool/total aggregation, failure diagnostics, safe eval JSON, C1 invariants, baseline/batched behavior, and legacy routing.
 - Discovery accounting full build: passed for the API server, Noesis frontend, and mockup sandbox; the existing non-fatal Vite tooltip sourcemap warning remains.
 - Discovery accounting safety review: no prompt, model allocation, reasoning, schema, gate, source validation, ranking, cache identity, or legacy behavior changed. Secret-pattern and diff checks passed; no paid model call was made by Codex.
+- Identity contract typecheck: passed across all workspace projects.
+- Identity contract focused tests: 27/27 Discovery V1 and C1 mocked tests passed, covering the explicit generation instruction, verified required fields, null unresolved fields, field-by-field strict rejection for unverified/conflicted results, unchanged downstream applicability/withholding, shared baseline/C1 identity requests, unchanged Luna-medium candidate research, source integrity, and safe eval output.
+- Identity contract full tests: 103/103 repository tests passed.
+- Identity contract full build: passed for the API server, Noesis frontend, and mockup sandbox; the existing non-fatal Vite tooltip sourcemap warning remains.
+- Identity contract safety review: the staged diff was limited to the shared identity-verification instruction and focused mocked tests; diff checks and secret-pattern scanning passed. No paid model call or automatic retry was made.
 
 - Typecheck: passed across all workspace projects.
 - Tests: 12/12 passed.
@@ -146,7 +154,7 @@ Latest verified on 2026-08-13:
 
 ## Latest Stable Commit
 
-`24a80ac` — current model pricing plus observed web-search tool-fee accounting for Discovery. C1 implementation is `f1d49a8`; Experiment A closure is `5a96aaf`.
+`e24c4f0` — shared identity-verification generation contract aligned with the existing strict validator. Discovery accounting is `24a80ac`; C1 implementation is `f1d49a8`; Experiment A closure is `5a96aaf`.
 
 ## Important Decisions
 
@@ -194,7 +202,7 @@ Latest verified on 2026-08-13:
 - The three current real-world V1 samples are useful but limited; Minard is memorization-prone, and broader quality judgment remains human-led.
 - Pantheon demonstrated a source-entailment risk: reproduction or use by a modern source does not prove provenance of the underlying visual.
 - Batched Terra research failed the fixed-baseline quality requirement on Chuquicamata because all three final candidate results failed candidate-local citation validation. This is retained experimental evidence, not an open debugging task.
-- C1 evidence is still only one successful image. A separate Noordoostpolder attempt failed in unchanged Terra identity verification before any Luna candidate-research call, so it is not evidence for or against Luna and does not satisfy the planned Noordoostpolder quality gate.
+- C1 evidence is still only one successful image. C1 not evaluated: run aborted upstream during unchanged Terra identity verification before candidate research. The generation contract is now aligned with the unchanged strict validator, but this does not satisfy the planned Noordoostpolder quality gate until the one authorized human rerun is judged.
 
 ## Next Step
 

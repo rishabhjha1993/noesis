@@ -6,7 +6,7 @@
 
 ## Current Product State
 
-The legacy Noesis experience works as a standalone full-stack Node service. The React upload/result UI, Express API, asynchronous analysis jobs and polling, deterministic evidence computation, OpenAI analysis pipeline, cache support, and evaluation infrastructure are preserved. Platform-independent production serving, minimum public-safety controls, instrumentation, and evaluation infrastructure are checkpointed in Git and deployed. Discovery Engine V1 exists as the parallel, experimental branch path at `/discovery-lab`; it is committed, pushed, and qualitatively evaluated on Noordoostpolder, Minard, Pantheon, and Chuquicamata, but has not been deployed. The lab can copy a complete safe eval JSON projection of a completed run, shows safe stage-aware failure diagnostics, and permits an explicit choice between baseline V1 and the isolated batched-research Cost Experiment A. Batched validation preserves candidate-local citation ownership and now carries versioned safe per-candidate diagnostics through job persistence and the real API response without crashing on older result shapes.
+The legacy Noesis experience works as a standalone full-stack Node service. The React upload/result UI, Express API, asynchronous analysis jobs and polling, deterministic evidence computation, OpenAI analysis pipeline, cache support, and evaluation infrastructure are preserved. Platform-independent production serving, minimum public-safety controls, instrumentation, and evaluation infrastructure are checkpointed in Git and deployed. Discovery Engine V1 exists as the parallel, experimental branch path at `/discovery-lab`; it is committed, pushed, and qualitatively evaluated on Noordoostpolder, Minard, Pantheon, and Chuquicamata, but has not been deployed. The lab can copy a complete safe eval JSON projection of a completed run, shows safe stage-aware failure diagnostics, and permits an explicit choice among baseline V1, historical batched-research Cost Experiment A, and isolated Luna candidate-research Experiment C1. Batched validation preserves candidate-local citation ownership and now carries versioned safe per-candidate diagnostics through job persistence and the real API response without crashing on older result shapes.
 
 ## Live Deployment
 
@@ -21,7 +21,7 @@ The legacy Noesis experience works as a standalone full-stack Node service. The 
 
 ## Current Milestone
 
-Cost Experiment A is closed and failed its non-inferiority requirement. The final controlled Chuquicamata batched run had no validated answered research, produced one final discovery, and provided no total-cost advantage over the retained baseline. Baseline `discovery-engine-v1` remains the fixed default and quality reference; `discovery-engine-v1-batched-research` remains preserved as isolated historical experiment code. The next milestone is isolated Experiment C1: Luna replaces Terra for per-candidate research calls only.
+Cost Experiment A is closed and failed its non-inferiority requirement. Experiment C1 is implemented as the opt-in `discovery-engine-v1-luna-research` engine: Luna medium replaces Terra medium only for baseline per-candidate research calls. Baseline `discovery-engine-v1` remains the fixed default and quality reference; `discovery-engine-v1-batched-research` remains preserved as isolated historical experiment code. The next milestone is one human-authorized cold C1 Chuquicamata run against the retained baseline; no paid run was made during implementation.
 
 ## Completed
 
@@ -65,15 +65,26 @@ Cost Experiment A is closed and failed its non-inferiority requirement. The fina
 - Cost Experiment A final controlled Chuquicamata result: `$0.3372475` total, `153592 ms`, Stage 1 `$0.099555`, identity verification `$0.06636`, batch candidate research `$0.1136375`, and Stage 3 `$0.057695`. Three research candidates were all invalid/insufficient, with zero answered candidates and one final discovery.
 - All three final batched candidate results failed strict candidate-local source validation with category `source_validation` and safe message `A claimed source was not cited within this candidate result.` The retained baseline cost approximately `$0.334017`, took approximately `166819 ms`, returned two answered and one insufficient research result, and retained two strong discoveries.
 - Cost Experiment A is formally **closed / failed**. Batching sometimes reduced the candidate-research component, but citation attribution was not reliable enough to preserve validated research and the final controlled run had worse intelligence with no total-cost advantage. No further paid batching runs or batching fixes are planned; the implementation and history remain preserved.
+- Experiment A closure documentation was committed as `5a96aaf`.
+- Experiment C1 was implemented as `f1d49a8` with the isolated `discovery-engine-v1-luna-research` engine/cache identity and an explicit `/discovery-lab` selector. Stage 1 and Stage 3 remain Sol medium, identity verification remains Terra medium, and only separate candidate-research calls use `gpt-5.6-luna` medium.
+- C1 reuses the exact baseline candidate-research prompt, request/tool/schema contract, gate, question mapping, answered/insufficient semantics, candidate-local citation validation, final validation, and ranking. There is no retry, Terra fallback, escalation, batching, or other intelligence change.
+- C1 metrics expose the requested candidate-research model plus each call's actual returned model, ids, reasoning effort, status, tokens, latency, and cost. Stage 2 total cost sums conditional Terra identity verification and Luna candidate research without repricing aggregate mixed-model usage.
+- Current official Luna pricing was recorded as `$0.20/M` input, `$0.02/M` cached input, and `$1.20/M` output. At the retained baseline's approximately `$0.150` Terra candidate-research cost, the same-token Luna-rate counterfactual is approximately `$0.012`; this is a pricing-only counterfactual, not a prediction of real C1 token usage, quality, or savings.
 
 ## In Progress
 
 - No implementation work is currently in progress.
-- Experiment C1 implementation is next: isolated `gpt-5.6-luna` substitution for baseline per-candidate research only. No paid run is authorized during implementation.
+- Experiment C1 awaits one human-authorized cold Chuquicamata evaluation. No fallback or later C experiment is in progress.
 
 ## Verification
 
-Latest verified on 2026-08-11:
+Latest verified on 2026-08-13:
+
+- Experiment C1 official compatibility check: the exact `gpt-5.6-luna` model supports Responses, web search, structured outputs, and medium reasoning under the existing research contract; local OpenAI SDK types accepted the unchanged request.
+- Experiment C1 typecheck: passed across all workspace projects.
+- Experiment C1 tests: 99/99 repository tests passed, including focused allocation, request-equivalence, gate, question mapping, source-integrity, mixed Terra/Luna cost, cache, selector, failure/no-fallback, safe eval JSON, baseline, batched, and legacy-route coverage.
+- Experiment C1 full build: passed for the API server, Noesis frontend, and mockup sandbox; the existing non-fatal Vite tooltip sourcemap warning remains.
+- Experiment C1 safety review: staged diff and secret-pattern checks passed. No prompt, schema, reasoning level, gate, ranking, source rule, legacy route, baseline cache, or batched cache changed. No paid model call was made.
 
 - Typecheck: passed across all workspace projects.
 - Tests: 12/12 passed.
@@ -127,7 +138,7 @@ Latest verified on 2026-08-11:
 
 ## Latest Stable Commit
 
-`ff4ba30` — failed-job batched diagnostics and aligned Stage 3 evidence applicability. Experiment A is now closed as failed; its documentation closure follows this checkpoint.
+`f1d49a8` — isolated Luna-for-candidate-research Experiment C1 implementation. Experiment A closure is recorded in `5a96aaf`.
 
 ## Important Decisions
 
@@ -155,6 +166,8 @@ Latest verified on 2026-08-11:
 - Local production backend changes require a process restart: `pnpm start` loads `artifacts/api-server/dist/index.mjs` once, while the same process can serve newly rebuilt frontend assets from disk. The `validation_diagnostics_version` marker must be present before a paid diagnostic rerun is trusted.
 - Batched Stage 3 receives only answered candidate research as validated research evidence. Verified identity includes deterministic `applicable_candidate_ids` computed by the same identity-to-candidate mapping used by final source validation; insufficient/invalid research remains available in inspection and metrics but is not presented as evidence.
 - Cost Experiment A is historical and closed. Do not spend further paid runs or implementation effort on batched Terra research unless a future task explicitly reopens it.
+- C1 is a clean single-variable model substitution with no fallback: Luna failure, insufficiency, or strict-validation failure is experimental evidence and must not silently route to Terra.
+- The future C roadmap is recorded only: potential C2 adds deterministic per-candidate Luna-to-Terra escalation if C1 is mostly successful; potential C3 tests Luna identity verification with Terra escalation for ambiguity; potential C4 tests Luna Stage 3; potential C5 tests Luna Stage 1 last. None is implemented or authorized. Representation/token-compression Experiment B remains later than C1.
 
 ## Known Issues / Risks
 
@@ -172,7 +185,8 @@ Latest verified on 2026-08-11:
 - The three current real-world V1 samples are useful but limited; Minard is memorization-prone, and broader quality judgment remains human-led.
 - Pantheon demonstrated a source-entailment risk: reproduction or use by a modern source does not prove provenance of the underlying visual.
 - Batched Terra research failed the fixed-baseline quality requirement on Chuquicamata because all three final candidate results failed candidate-local citation validation. This is retained experimental evidence, not an open debugging task.
+- Luna candidate-research quality, actual token usage, source-validation pass rate, latency, retained discoveries, and real savings remain unknown until the single controlled human C1 run. The same-token `$0.012` counterfactual is not a live prediction.
 
 ## Next Step
 
-Implement and verify Experiment C1 as a single-variable, independently cached Luna-for-candidate-research variant. Do not run a paid model call, add fallback/escalation, begin C2–C5, or implement representation compression.
+With explicit human authorization, run exactly one cold `discovery-engine-v1-luna-research` analysis of the same Chuquicamata image used by the retained V1 baseline, copy the full eval JSON, and compare question fidelity, source validation, retained discoveries, candidate-research/total cost, and latency against the retained `$0.334017` / `166819 ms` baseline. Do not rerun baseline, add fallback/escalation, tune prompts, begin C2–C5, or implement representation compression.

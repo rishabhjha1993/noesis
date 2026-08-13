@@ -6,7 +6,7 @@
 
 ## Current Product State
 
-The legacy Noesis experience works as a standalone full-stack Node service. The React upload/result UI, Express API, asynchronous analysis jobs and polling, deterministic evidence computation, OpenAI analysis pipeline, cache support, and evaluation infrastructure are preserved. Platform-independent production serving, minimum public-safety controls, instrumentation, and evaluation infrastructure are checkpointed in Git and deployed. Discovery Engine V1 exists as the parallel, experimental branch path at `/discovery-lab`; it is committed, pushed, and qualitatively evaluated on Noordoostpolder, Minard, Pantheon, and Chuquicamata, but has not been deployed. The lab can copy a complete safe eval JSON projection of a completed run, shows safe stage-aware failure diagnostics, permits an explicit choice among baseline V1, historical batched-research Cost Experiment A, and isolated Luna candidate-research Experiment C1, and reports model-token cost separately from observed web-search tool fees and total known cost. Batched validation preserves candidate-local citation ownership and now carries versioned safe per-candidate diagnostics through job persistence and the real API response without crashing on older result shapes.
+The legacy Noesis experience works as a standalone full-stack Node service. The React upload/result UI, Express API, asynchronous analysis jobs and polling, deterministic evidence computation, OpenAI analysis pipeline, cache support, and evaluation infrastructure are preserved. Platform-independent production serving, minimum public-safety controls, instrumentation, and evaluation infrastructure are checkpointed in Git and deployed. Discovery Engine V1 exists as the parallel, experimental branch path at `/discovery-lab`; it is committed, pushed, and qualitatively evaluated on Noordoostpolder, Minard, Pantheon, and Chuquicamata, but has not been deployed. The lab can copy a complete safe eval JSON projection of a completed run, shows safe stage-aware failure diagnostics, permits an explicit choice among baseline V1, historical batched-research Cost Experiment A, and isolated Luna candidate-research Experiment C1, and reports model-token cost separately from observed web-search tool fees and total known cost. Every V1-family path now supplies Stage 3 only answered candidate research plus verified identity with deterministic candidate applicability. A developer-only replay CLI can compare Terra and Luna candidate research against identical retained Stage 1 and verified identity inputs without running Stage 1, identity verification, or Stage 3.
 
 ## Live Deployment
 
@@ -21,7 +21,7 @@ The legacy Noesis experience works as a standalone full-stack Node service. The 
 
 ## Current Milestone
 
-Cost Experiment A is closed and failed its non-inferiority requirement. Experiment C1 is provisionally passed on Chuquicamata: the opt-in `discovery-engine-v1-luna-research` run improved recorded model-token cost, latency, research answer rate, and final-discovery count without a judged whole-product quality regression. Baseline `discovery-engine-v1` remains the fixed quality reference; C1 is not promoted permanently from one image. Accounting now uses current official Sol/Terra/Luna token rates and observed Responses `web_search_call` items. The shared Terra identity-verification generation contract is aligned with its existing strict validator after an upstream Noordoostpolder abort. The next milestone remains exactly one cold C1 Noordoostpolder run as the second quality gate.
+Cost Experiment A is closed and failed its non-inferiority requirement. Experiment C1 remains provisionally passed on Chuquicamata: 3/3 Luna research calls answered, final discoveries were strong, and the run was materially cheaper and faster. The Noordoostpolder end-to-end C1 run is inconclusive as a Luna-versus-Terra comparison because its unchanged Terra identity step returned `unverified`, correctly withholding identity context before 5/5 Luna calls returned insufficient. That run exposed a shared Stage-3 evidence mismatch, now fixed without weakening final validation. The next milestone is one research-only Luna replay using the successful retained Noordoostpolder baseline's exact Stage 1 and verified identity context.
 
 ## Completed
 
@@ -76,12 +76,17 @@ Cost Experiment A is closed and failed its non-inferiority requirement. Experime
 - Successful and failed-run metrics now separate `model_token_cost_usd`, `tool_cost_usd`, and `total_known_cost_usd`, retain `cost_usd`/`total_cost_usd` as backward-compatible total-known-cost aliases, expose observed web-search counts at call/stage/run levels, and preserve the safe eval projection without raw provider output.
 - Identity-verification generation-contract alignment was committed as `e24c4f0`. The existing flat Structured Outputs schema allowed nullable canonical identity fields independently of status, while the strict final Zod validator correctly rejected populated identity fields for `unverified` or `conflicted` results. Current official Structured Outputs does not support `if`/`then`/`else` and does not permit a root `anyOf`, so the shared Terra identity instructions now explicitly require populated canonical identity/type only for `verified`, require canonical identity/type/location all null for unresolved statuses, and confine tentative or rejected possibilities to the existing basis/evidence fields.
 - The strict final validator, verified source/evidence requirements, identity applicability, downstream withholding, Stage 1, candidate research, Stage 3, model allocation, reasoning, research gate, ranking, source validation, cache identities, and legacy `/` behavior were not changed. No invalid response is normalized, retried, or hidden.
-- C1 not evaluated: run aborted upstream during unchanged Terra identity verification before candidate research.
+- Earlier Noordoostpolder attempt `95caca2e-774b-4294-8853-08c13e72322b` did not evaluate C1: it aborted upstream during unchanged Terra identity verification before candidate research because the generation contract had not yet stated the strict unresolved-identity null invariant.
+- Shared Stage-3 evidence alignment was committed as `a7d5765`. Ordinary V1, C1, and batched variants now use the same `createStage3Evidence` path: only answered research results enter Stage 3, verified identity carries `applicable_candidate_ids` from the final validator's mapping function, and unverified/conflicted identity is status-only. Inspection, eval, and metrics still retain insufficient results. The final source validator remains unchanged and strict.
+- Discovery cache keys now include the internal contract revision `stage3-evidence-v2` between the unchanged product-visible engine version and image hash. This prevents post-fix runs from reusing pre-fix in-memory results while preserving historical engine/version labels and experiment separation.
+- The controlled candidate-research replay harness was committed as `8402bfd`. It validates a successful retained baseline with existing Stage 1, identity, research, and final-output contracts; requires verified retained identity before execution; reuses the production request builder and candidate-call executor; restricts selection to Terra or Luna at medium reasoning; and requires explicit `--execute` plus an output path for paid work.
+- Replay output contains safe candidate-aligned status, finding, validated sources, returned model and token counts, latency, observed search calls, model/tool/total-known cost, aggregates, and retained baseline status/cost comparison. It contains no Stage 3 output, raw provider response, prompts, hidden reasoning, credentials, or arbitrary model selection.
+- Fresh Noordoostpolder baseline discovery `eedc1b48-b7bc-481c-8e41-c73162426be3` completed successfully as `discovery-engine-v1` with verified identity, five research candidates, three answered and two insufficient results, 11 observed web-search calls, and `$0.5083112` total known cost. Its 30,904-byte local API envelope at `/tmp/noesis-noordoostpolder-baseline.json` is the retained input for the current controlled replay and is not a committed artifact.
+- Noordoostpolder end-to-end C1 discovery `ea4b3b0a-50d9-4ef4-9db0-995d3d40df0b` is **INCONCLUSIVE** as a Luna-versus-Terra quality test: unchanged Terra identity returned `unverified`; verified context was correctly withheld; 5/5 Luna research calls returned insufficient; Stage 3 saw insufficient results under the old shared evidence contract and emitted researched provenance; final validation correctly rejected it for lacking applicable validated sources. Do not classify this as a fair Luna quality failure.
 
 ## In Progress
 
-- No implementation work is currently in progress.
-- Experiment C1 awaits exactly one cold Noordoostpolder evaluation after restarting the rebuilt backend. No fallback or later C experiment is in progress.
+- No implementation work is currently in progress. The next human action is exactly one Luna candidate-research replay against the retained Noordoostpolder baseline; no end-to-end rerun, fallback, or later C experiment is in progress.
 
 ## Verification
 
@@ -101,6 +106,11 @@ Latest verified on 2026-08-13:
 - Identity contract full tests: 103/103 repository tests passed.
 - Identity contract full build: passed for the API server, Noesis frontend, and mockup sandbox; the existing non-fatal Vite tooltip sourcemap warning remains.
 - Identity contract safety review: the staged diff was limited to the shared identity-verification instruction and focused mocked tests; diff checks and secret-pattern scanning passed. No paid model call or automatic retry was made.
+- Shared Stage-3/replay typecheck: passed across all workspace projects.
+- Shared Stage-3/replay tests: 112/112 repository tests passed, including answered-only evidence, mixed/insufficient handling, verified identity applicability, unresolved identity withholding, strict final-source rejection, cache revision, retained-envelope validation, zero-call dry-run, Terra/Luna request equivalence except model, retained-answer non-leakage, candidate-only execution, exact web-search/cost accounting, safe output, failure accounting, routes, and legacy `/` coverage.
+- Shared Stage-3/replay full build: passed for the API server, Noesis frontend, and mockup sandbox; the existing non-fatal Vite tooltip sourcemap warning remains.
+- Retained Noordoostpolder Luna dry-run: passed with verified identity, five Stage 1 candidates, five gated/planned API calls, and verified identity context planned for `cand_boundary_01`, `cand_layout_02`, `cand_lakes_04`, and `cand_round_feature_05`; `cand_color_03` receives no identity context. Dry-run created no output artifact and made no OpenAI call.
+- Shared Stage-3/replay safety review: implementation diffs, staged scope, and secret patterns passed; the retained `/tmp` input was not added; no paid replay, end-to-end rerun, baseline rerun, C2, fallback, or optimization was performed.
 
 - Typecheck: passed across all workspace projects.
 - Tests: 12/12 passed.
@@ -154,7 +164,7 @@ Latest verified on 2026-08-13:
 
 ## Latest Stable Commit
 
-`e24c4f0` — shared identity-verification generation contract aligned with the existing strict validator. Discovery accounting is `24a80ac`; C1 implementation is `f1d49a8`; Experiment A closure is `5a96aaf`.
+`8402bfd` — controlled candidate-research replay using retained validated inputs. Shared Stage-3 evidence alignment is `a7d5765`; identity generation alignment is `e24c4f0`; Discovery accounting is `24a80ac`; C1 implementation is `f1d49a8`; Experiment A closure is `5a96aaf`.
 
 ## Important Decisions
 
@@ -185,6 +195,9 @@ Latest verified on 2026-08-13:
 - C1 is a clean single-variable model substitution with no fallback: Luna failure, insufficiency, or strict-validation failure is experimental evidence and must not silently route to Terra.
 - The C roadmap was revised after the strong Chuquicamata result: if Noordoostpolder also passes, C2 is Luna replacing Terra for identity verification only. Do not build Luna-to-Terra candidate fallback unless later evidence creates a specific need. Stage 3 and Stage 1 model substitutions remain later experiments, with Stage 1 last; none is implemented or authorized. Representation/token-compression Experiment B remains later than C1.
 - C1 is provisionally passed, not promoted. If the Noordoostpolder gate also passes, do not add Luna-to-Terra candidate fallback without observed need; the next clean experiment becomes Luna identity verification, retaining deterministic validation and treating escalation as a separate later decision.
+- Stage 3 may receive only evidence the unchanged final validator could permit: answered research for mapped candidates, or verified identity sources with deterministic mapped candidate applicability. Insufficient research remains visible to evaluators but is not Stage-3 research evidence.
+- Product-visible V1 engine labels remain unchanged. The internal Discovery cache contract revision is part of every V1-family cache key so evidence-contract changes cannot collide with pre-fix cached results.
+- Research replay is an eval-only CLI, not a product pipeline. It freezes Stage 1, questions, mappings, gate decisions, and verified identity; reuses production research semantics; changes only the candidate-research model; and has no fallback, escalation, Stage 1, identity-verification, Stage 3, or LLM judge operation.
 
 ## Known Issues / Risks
 
@@ -202,8 +215,8 @@ Latest verified on 2026-08-13:
 - The three current real-world V1 samples are useful but limited; Minard is memorization-prone, and broader quality judgment remains human-led.
 - Pantheon demonstrated a source-entailment risk: reproduction or use by a modern source does not prove provenance of the underlying visual.
 - Batched Terra research failed the fixed-baseline quality requirement on Chuquicamata because all three final candidate results failed candidate-local citation validation. This is retained experimental evidence, not an open debugging task.
-- C1 evidence is still only one successful image. C1 not evaluated: run aborted upstream during unchanged Terra identity verification before candidate research. The generation contract is now aligned with the unchanged strict validator, but this does not satisfy the planned Noordoostpolder quality gate until the one authorized human rerun is judged.
+- C1 evidence is still only one fair successful image. The Noordoostpolder end-to-end result is inconclusive because Luna did not receive the verified identity context used by the fresh baseline; its 5/5 insufficient results cannot isolate candidate-model quality. The controlled research-only replay is required before judging Luna on this input.
 
 ## Next Step
 
-After restarting the rebuilt backend, run exactly one cold `discovery-engine-v1-luna-research` analysis of the retained Noordoostpolder fixture, copy the full eval JSON, and compare it against the retained baseline tripwires: reclaimed former lakebed, IJsseloog containment depot, Urk former-island settlement, and Emmeloord radial planning. Judge question fidelity, strict source validation, retained discoveries, observed search calls, model-token/tool/total-known cost, and latency. Do not rerun baseline, add fallback/escalation, tune prompts, start Luna identity verification, or implement representation compression in that run.
+Run exactly one Luna candidate-research replay with `/tmp/noesis-noordoostpolder-baseline.json`, discovery id `eedc1b48-b7bc-481c-8e41-c73162426be3`, and an output path under `/tmp`. Compare candidate status, findings, source integrity, observed search calls, model-token/tool/total-known cost, and latency against the retained Terra results by candidate and question. Do not run Stage 1, identity verification, Stage 3, the end-to-end pipeline, baseline again, fallback/escalation, C2, an LLM judge, or representation compression.

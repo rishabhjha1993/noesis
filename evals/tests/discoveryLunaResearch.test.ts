@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { DiscoveryStage1 } from "../../artifacts/api-server/src/lib/discoveryContracts";
-import { computeDiscoveryCacheKey } from "../../artifacts/api-server/src/lib/discoveryCache";
+import {
+  DISCOVERY_CACHE_CONTRACT_REVISION,
+  computeDiscoveryCacheKey,
+} from "../../artifacts/api-server/src/lib/discoveryCache";
 import {
   DEFAULT_DISCOVERY_ENGINE_VARIANT,
   DISCOVERY_BATCHED_RESEARCH_ENGINE_VERSION,
@@ -410,6 +413,9 @@ test("C1 preserves baseline candidate requests and source integrity", async () =
   assert.equal(luna.metrics.stage2.batch, null);
   assert.deepEqual(luna.discoveries, baseline.discoveries);
   assert.equal(luna.version, DISCOVERY_LUNA_RESEARCH_ENGINE_VERSION);
+  const stage3Input = JSON.stringify(lunaChats[1]);
+  assert.match(stage3Input, /A candidate-local cited finding/);
+  assert.doesNotMatch(stage3Input, /uncited claim|unsafe citation/);
 
   const evalPayload = createDiscoveryEvalPayload({
     result: luna,
@@ -448,6 +454,11 @@ test("C1 has isolated cache identity and baseline/batched identities are unchang
     new RegExp(`^${DISCOVERY_BATCHED_RESEARCH_ENGINE_VERSION}:`),
   );
   assert.match(luna, new RegExp(`^${DISCOVERY_LUNA_RESEARCH_ENGINE_VERSION}:`));
+  assert.match(baseline, new RegExp(`:${DISCOVERY_CACHE_CONTRACT_REVISION}:`));
+  assert.notEqual(
+    baseline,
+    `${DISCOVERY_ENGINE_VERSION}:${computeDiscoveryCacheKey(image).imageHash}`,
+  );
   assert.equal(new Set([baseline, batched, luna]).size, 3);
 });
 

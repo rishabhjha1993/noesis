@@ -9,6 +9,7 @@ import {
   type DiscoveryStage1,
 } from "../../artifacts/api-server/src/lib/discoveryContracts";
 import {
+  createStage3Evidence,
   runDiscoveryPipeline,
   runSelectiveResearch,
 } from "../../artifacts/api-server/src/lib/discoveryPipeline";
@@ -465,6 +466,114 @@ test("identity verification sources use the existing URL safety validation", () 
     validateIdentityVerification(identityStage1, verifiedDraft, [
       { title: "Unsafe", url: "javascript:alert(1)" },
     ]),
+  );
+});
+
+test("shared Stage 3 evidence exposes only answered research", () => {
+  const research = identityStage1.candidates.map((candidate, index) => ({
+    candidate_id: candidate.id,
+    question_id: candidate.question_id,
+    question: candidate.investigation_question,
+    status: index === 0 ? ("answered" as const) : ("insufficient" as const),
+    finding:
+      index === 0
+        ? "A validated finding."
+        : "No adequate evidence was found.",
+    sources:
+      index === 0
+        ? [{ title: "Research", url: "https://example.com/research" }]
+        : [],
+  }));
+  const evidence = createStage3Evidence(identityStage1, research, null);
+  assert.deepEqual(
+    evidence.research_results.map((result) => result.candidate_id),
+    ["c1"],
+  );
+  assert.doesNotMatch(JSON.stringify(evidence), /No adequate evidence/);
+});
+
+test("shared Stage 3 evidence gives only verified identity explicit applicability", () => {
+  const verified = validateIdentityVerification(
+    identityStage1,
+    verifiedDraft,
+    [{ title: "Identity", url: "https://example.com/identity" }],
+  );
+  const verifiedEvidence = createStage3Evidence(
+    identityStage1,
+    [],
+    verified,
+  );
+  assert.deepEqual(
+    verifiedEvidence.identity_verification?.status === "verified"
+      ? verifiedEvidence.identity_verification.applicable_candidate_ids
+      : [],
+    ["c1", "c2"],
+  );
+
+  for (const status of ["unverified", "conflicted"] as const) {
+    const unresolved = validateIdentityVerification(
+      identityStage1,
+      unresolvedDraft(status),
+      [],
+    );
+    assert.deepEqual(
+      createStage3Evidence(identityStage1, [], unresolved)
+        .identity_verification,
+      { status },
+    );
+  }
+});
+
+test("all-insufficient unresolved research permits seen output but not researched output", () => {
+  const insufficient = identityStage1.candidates.map((candidate) => ({
+    candidate_id: candidate.id,
+    question_id: candidate.question_id,
+    question: candidate.investigation_question,
+    status: "insufficient" as const,
+    finding: "No adequate evidence was found.",
+    sources: [],
+  }));
+  const unresolved = validateIdentityVerification(
+    identityStage1,
+    unresolvedDraft("unverified"),
+    [],
+  );
+  const seen = {
+    discoveries: [
+      {
+        id: "d-seen",
+        type: "local" as const,
+        title: "Visible geometric contrast",
+        visual_trigger: identityStage1.candidates[0]!.visual_trigger,
+        observation: identityStage1.candidates[0]!.observation,
+        discovery: "The circle visibly interrupts the parcel geometry.",
+        why_it_matters: "The interruption is a meaningful visual anomaly.",
+        explanation: "This conclusion depends only on visible structure.",
+        reinterpretation: "Look back at the circle against the parcels.",
+        region_ids: ["r2"],
+        provenance: "seen" as const,
+        confidence: 0.7,
+        sources: [],
+        candidate_ids: ["c1"],
+      },
+    ],
+  };
+  assert.equal(
+    validateDiscoveryOutput(identityStage1, insufficient, seen, unresolved)
+      .discoveries.length,
+    1,
+  );
+  const researched = structuredClone(seen);
+  researched.discoveries[0]!.provenance = "researched";
+  assert.throws(
+    () =>
+      validateDiscoveryOutput(
+        identityStage1,
+        insufficient,
+        researched,
+        unresolved,
+      ),
+    /no applicable validated research sources/,
   );
 });
 

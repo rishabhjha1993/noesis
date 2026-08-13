@@ -153,7 +153,7 @@ Rank by accuracy, visual dependence, surprise, explanatory depth, specificity, c
 Rules:
 - candidate_ids must reference the exact Stage 1 candidates supporting the discovery.
 - region_ids must reference only Stage 1 regions and should include every region needed to return attention to the image.
-- provenance is researched only when an answered research result or verified identity result materially contributes.
+- provenance is researched only when candidate_ids include an answered research result or a candidate explicitly listed in the verified identity result's applicable_candidate_ids.
 - researched discoveries may copy only source objects present in the supplied research or verified identity results.
 - never present an unverified or conflicted identity hypothesis as fact; verified identity is not itself a discovery and may appear only when it materially explains or reinterprets something visible.
 - all other discoveries must have an empty sources array.
@@ -161,11 +161,6 @@ Rules:
 - explanation is concise and user-facing; never expose private chain-of-thought.
 
 Return only the strict JSON object.`;
-
-const BATCHED_STAGE3_PROMPT = STAGE3_PROMPT.replace(
-  "- provenance is researched only when an answered research result or verified identity result materially contributes.",
-  "- provenance is researched only when candidate_ids include an answered research result or a candidate explicitly listed in the verified identity result's applicable_candidate_ids.",
-);
 
 export interface DiscoveryUsageMetrics {
   model: string;
@@ -1452,22 +1447,11 @@ async function runDiscoveryPipelineWithState(
 
   state.stageReached = "stage3";
   const stage3Started = Date.now();
-  const stage3Evidence =
-    variant === "v1-batched-research"
-      ? createStage3Evidence(
-          stage1,
-          research.results,
-          research.identityVerification.result,
-        )
-      : {
-          research_results: research.results,
-          identity_verification:
-            research.identityVerification.result?.status === "verified"
-              ? research.identityVerification.result
-              : research.identityVerification.result
-                ? { status: research.identityVerification.result.status }
-                : null,
-        };
+  const stage3Evidence = createStage3Evidence(
+    stage1,
+    research.results,
+    research.identityVerification.result,
+  );
   const stage3Grounding = {
     ...stage1,
     identity_hypotheses:
@@ -1494,10 +1478,7 @@ async function runDiscoveryPipelineWithState(
     messages: [
       {
         role: "system",
-        content:
-          variant === "v1-batched-research"
-            ? BATCHED_STAGE3_PROMPT
-            : STAGE3_PROMPT,
+        content: STAGE3_PROMPT,
       },
       {
         role: "user",

@@ -117,6 +117,8 @@ For each candidate:
 
 Optionally propose a small set of identity_hypotheses. These are visual hypotheses, never verified facts. Each must include concrete visible evidence, supporting regions, any observed labels or numbers, confidence, and the exact question ids that verified identity would materially help. Return an empty identity_hypotheses array when the image does not support a useful hypothesis. Do not identify an image merely because naming the subject might be interesting.
 
+When forming an identity hypothesis, combine multiple independent visible clues when they jointly narrow the identity. State the most specific falsifiable identity those clues justify. If the evidence does not justify greater specificity, stay broad rather than guessing.
+
 Candidates may require no research. Reject broad topic questions, generic history, and trivia that could be generated from the subject alone. Do not expose chain-of-thought; return only concise structured grounding artifacts.`;
 
 const IDENTITY_VERIFICATION_INSTRUCTIONS = `You are the conditional identity-verification substep inside Stage 2 of Noesis Discovery Engine V1.
@@ -1010,8 +1012,7 @@ async function runSelectiveResearchWithState(
   openai: OpenAI,
   stage1: DiscoveryStage1,
   state: DiscoveryExecutionState,
-  candidateResearchModel: DiscoveryCandidateResearchModel =
-    DISCOVERY_STAGE2_MODEL,
+  candidateResearchModel: DiscoveryCandidateResearchModel = DISCOVERY_STAGE2_MODEL,
 ): Promise<DiscoveryResearchExecution> {
   const rawResults: DiscoveryResearchResult[] = [];
   const calls: DiscoveryResearchCallMetrics[] = [];

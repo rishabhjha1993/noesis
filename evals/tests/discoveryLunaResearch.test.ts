@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { DiscoveryStage1 } from "../../artifacts/api-server/src/lib/discoveryContracts";
+import {
+  DISCOVERY_STAGE1_JSON_SCHEMA,
+  type DiscoveryStage1,
+} from "../../artifacts/api-server/src/lib/discoveryContracts";
 import {
   DISCOVERY_CACHE_CONTRACT_REVISION,
   computeDiscoveryCacheKey,
@@ -437,9 +440,72 @@ test("C1 preserves baseline candidate requests and source integrity", async () =
   );
 });
 
+test("production Stage 1 adds only calibrated joint-evidence identity formulation", async () => {
+  const responseRequests: CapturedRequest[] = [];
+  const chatRequests: CapturedRequest[] = [];
+  await runDiscoveryPipeline(
+    fakeClient(responseRequests, chatRequests),
+    "data:image/png;base64,YWJj",
+    { variant: "v1-luna-research" },
+  );
+
+  const stage1Request = chatRequests[0]!;
+  const stage1Messages = JSON.stringify(stage1Request.messages);
+  assert.equal(stage1Request.model, "gpt-5.6-sol");
+  assert.equal(stage1Request.reasoning_effort, "medium");
+  assert.deepEqual(stage1Request.response_format, {
+    type: "json_schema",
+    json_schema: DISCOVERY_STAGE1_JSON_SCHEMA,
+  });
+  assert.match(
+    stage1Messages,
+    /combine multiple independent visible clues when they jointly narrow the identity/,
+  );
+  assert.match(
+    stage1Messages,
+    /most specific falsifiable identity those clues justify/,
+  );
+  assert.match(stage1Messages, /stay broad rather than guessing/);
+  assert.match(stage1Messages, /visual hypotheses, never verified facts/);
+  assert.match(
+    stage1Messages,
+    /Return an empty identity_hypotheses array when the image does not support a useful hypothesis/,
+  );
+  assert.match(
+    stage1Messages,
+    /Do not identify an image merely because naming the subject might be interesting/,
+  );
+  assert.doesNotMatch(
+    stage1Messages,
+    /Noordoostpolder|Netherlands|Flevoland|IJsseloog/,
+  );
+
+  const identityRequest = responseRequests.find((request) => request.text)!;
+  assert.equal(identityRequest.model, DISCOVERY_STAGE2_MODEL);
+  assert.match(
+    String(identityRequest.instructions),
+    /Prefer unverified or conflicted over a convenient nearest match/,
+  );
+  assert.deepEqual(discoveryModelAllocationForVariant("v1-luna-research"), {
+    stage1: DISCOVERY_STAGE1_MODEL,
+    identityVerification: DISCOVERY_STAGE2_MODEL,
+    candidateResearch: DISCOVERY_LUNA_RESEARCH_MODEL,
+    stage3: DISCOVERY_STAGE3_MODEL,
+  });
+
+  const stage3Request = chatRequests[1]!;
+  assert.equal(stage3Request.model, DISCOVERY_STAGE3_MODEL);
+  assert.equal(stage3Request.reasoning_effort, DISCOVERY_REASONING_EFFORT);
+  assert.match(
+    JSON.stringify(stage3Request.messages),
+    /DISCOVER → RETURN TO IMAGE/,
+  );
+});
+
 test("C1 has isolated cache identity and baseline/batched identities are unchanged", () => {
   const image = "data:image/png;base64,YWJj";
   const baseline = computeDiscoveryCacheKey(image).cacheKey;
+  const preJointEvidenceKey = `${DISCOVERY_ENGINE_VERSION}:stage3-evidence-v2:${computeDiscoveryCacheKey(image).imageHash}`;
   const batched = computeDiscoveryCacheKey(
     image,
     DISCOVERY_BATCHED_RESEARCH_ENGINE_VERSION,
@@ -455,6 +521,11 @@ test("C1 has isolated cache identity and baseline/batched identities are unchang
   );
   assert.match(luna, new RegExp(`^${DISCOVERY_LUNA_RESEARCH_ENGINE_VERSION}:`));
   assert.match(baseline, new RegExp(`:${DISCOVERY_CACHE_CONTRACT_REVISION}:`));
+  assert.equal(
+    DISCOVERY_CACHE_CONTRACT_REVISION,
+    "stage1-joint-identity-evidence-v3",
+  );
+  assert.notEqual(baseline, preJointEvidenceKey);
   assert.notEqual(
     baseline,
     `${DISCOVERY_ENGINE_VERSION}:${computeDiscoveryCacheKey(image).imageHash}`,

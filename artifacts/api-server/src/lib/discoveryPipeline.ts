@@ -120,7 +120,7 @@ For each candidate:
 
 Optionally propose a small set of identity_hypotheses. These are visual hypotheses, never verified facts. Each must include concrete visible evidence, supporting regions, any observed labels or numbers, confidence, and the exact question ids that verified identity would materially help. Return an empty identity_hypotheses array when the image does not support a useful hypothesis. Do not identify an image merely because naming the subject might be interesting.
 
-When forming an identity hypothesis, combine multiple independent visible clues when they jointly narrow the identity. State the most specific falsifiable identity those clues justify. If the evidence does not justify greater specificity, stay broad rather than guessing.
+When forming an identity hypothesis, prioritize discriminative clues over redundant clues. Consider all candidates marked identity_context_needed, especially unusual anomalies, topology, distinctive spatial relationships, labels, or numbers that could distinguish this exact subject from other members of the same broad category. Combine multiple independent visible clues when they jointly narrow the identity. State the most specific falsifiable identity those clues justify. Do not add specificity unless those clues justify it. If the evidence does not justify greater specificity, stay broad rather than guessing.
 
 Candidates may require no research. Reject broad topic questions, generic history, and trivia that could be generated from the subject alone. Do not expose chain-of-thought; return only concise structured grounding artifacts.`;
 

@@ -273,7 +273,7 @@ test("strict post-repair failure makes one Stage 1 call and invokes no downstrea
   assert.deepEqual(events, ["stage1"]);
 });
 
-test("Stage 1 production model, reasoning, and prompt remain unchanged", async () => {
+test("Stage 1 production model, reasoning, and joint-evidence safeguards remain unchanged", async () => {
   const requests: CapturedRequest[] = [];
   let chatCalls = 0;
   const client = {
@@ -296,7 +296,7 @@ test("Stage 1 production model, reasoning, and prompt remain unchanged", async (
   const prompt = JSON.stringify(requests[0]!.messages);
   assert.match(
     prompt,
-    /combine multiple independent visible clues when they jointly narrow the identity/,
+    /Combine multiple independent visible clues when they jointly narrow the identity/,
   );
   assert.match(prompt, /stay broad rather than guessing/);
 });

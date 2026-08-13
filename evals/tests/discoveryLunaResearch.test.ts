@@ -440,7 +440,7 @@ test("C1 preserves baseline candidate requests and source integrity", async () =
   );
 });
 
-test("production Stage 1 adds only calibrated joint-evidence identity formulation", async () => {
+test("production Stage 1 selects discriminative clues before calibrated identity formulation", async () => {
   const responseRequests: CapturedRequest[] = [];
   const chatRequests: CapturedRequest[] = [];
   await runDiscoveryPipeline(
@@ -459,7 +459,23 @@ test("production Stage 1 adds only calibrated joint-evidence identity formulatio
   });
   assert.match(
     stage1Messages,
-    /combine multiple independent visible clues when they jointly narrow the identity/,
+    /Combine multiple independent visible clues when they jointly narrow the identity/,
+  );
+  assert.match(
+    stage1Messages,
+    /prioritize discriminative clues over redundant clues/,
+  );
+  assert.match(
+    stage1Messages,
+    /Consider all candidates marked identity_context_needed/,
+  );
+  assert.match(
+    stage1Messages,
+    /unusual anomalies, topology, distinctive spatial relationships, labels, or numbers/,
+  );
+  assert.match(
+    stage1Messages,
+    /Do not add specificity unless those clues justify it/,
   );
   assert.match(
     stage1Messages,
@@ -477,7 +493,7 @@ test("production Stage 1 adds only calibrated joint-evidence identity formulatio
   );
   assert.doesNotMatch(
     stage1Messages,
-    /Noordoostpolder|Netherlands|Flevoland|IJsseloog/,
+    /Noordoostpolder|Netherlands|Dutch|Flevoland|IJsselmeer|IJsseloog|polder|reclaimed Netherlands|circular offshore object|this satellite image|identifying geography/i,
   );
 
   const identityRequest = responseRequests.find((request) => request.text)!;
@@ -505,7 +521,7 @@ test("production Stage 1 adds only calibrated joint-evidence identity formulatio
 test("C1 has isolated cache identity and baseline/batched identities are unchanged", () => {
   const image = "data:image/png;base64,YWJj";
   const baseline = computeDiscoveryCacheKey(image).cacheKey;
-  const preJointEvidenceKey = `${DISCOVERY_ENGINE_VERSION}:stage3-evidence-v2:${computeDiscoveryCacheKey(image).imageHash}`;
+  const preDiscriminativeEvidenceKey = `${DISCOVERY_ENGINE_VERSION}:stage1-joint-identity-evidence-v3:${computeDiscoveryCacheKey(image).imageHash}`;
   const batched = computeDiscoveryCacheKey(
     image,
     DISCOVERY_BATCHED_RESEARCH_ENGINE_VERSION,
@@ -523,9 +539,9 @@ test("C1 has isolated cache identity and baseline/batched identities are unchang
   assert.match(baseline, new RegExp(`:${DISCOVERY_CACHE_CONTRACT_REVISION}:`));
   assert.equal(
     DISCOVERY_CACHE_CONTRACT_REVISION,
-    "stage1-joint-identity-evidence-v3",
+    "stage1-discriminative-identity-evidence-v4",
   );
-  assert.notEqual(baseline, preJointEvidenceKey);
+  assert.notEqual(baseline, preDiscriminativeEvidenceKey);
   assert.notEqual(
     baseline,
     `${DISCOVERY_ENGINE_VERSION}:${computeDiscoveryCacheKey(image).imageHash}`,

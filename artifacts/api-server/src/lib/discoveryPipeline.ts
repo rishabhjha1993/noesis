@@ -5,9 +5,11 @@ import {
   DISCOVERY_IDENTITY_VERIFICATION_JSON_SCHEMA,
   DISCOVERY_STAGE1_JSON_SCHEMA,
   DISCOVERY_STAGE3_JSON_SCHEMA,
+  DiscoveryStage1DraftSchema,
   DiscoveryStage1Schema,
   evaluateResearchGate,
   identityApplicableCandidateIds,
+  reconcileDiscoveryStage1References,
   validateIdentityVerification,
   validateDiscoveryOutput,
   validateResearchResults,
@@ -19,6 +21,7 @@ import {
   type DiscoveryResearchResult,
   type DiscoverySource,
   type DiscoveryStage1,
+  type DiscoveryStage1ReconciliationDiagnostics,
 } from "./discoveryContracts";
 import {
   DISCOVERY_BATCHED_RESEARCH_JSON_SCHEMA,
@@ -350,6 +353,7 @@ export interface DiscoveryFailureDiagnostic {
   research_validation_category?: DiscoveryBatchValidationCategory;
   safe_validation_message?: string;
   affected_candidate_ids?: string[];
+  stage1_reconciliation?: DiscoveryStage1ReconciliationDiagnostics;
   validation_diagnostics_version?: string;
   validation_issues?: DiscoveryBatchValidationIssue[];
   batch_candidate_state?: {
@@ -396,6 +400,7 @@ interface DiscoveryExecutionState {
   currentCandidateId?: string;
   currentQuestionId?: string;
   stage1: DiscoveryStageMetrics | null;
+  stage1Reconciliation?: DiscoveryStage1ReconciliationDiagnostics;
   identityVerification:
     | (DiscoveryStageMetrics & {
         completed: boolean;
@@ -715,6 +720,9 @@ function createFailureDiagnostic(
       : {}),
     ...(state.affectedCandidateIds
       ? { affected_candidate_ids: state.affectedCandidateIds }
+      : {}),
+    ...(state.stage1Reconciliation
+      ? { stage1_reconciliation: state.stage1Reconciliation }
       : {}),
     ...(state.batchValidationDiagnostics
       ? {
@@ -1454,7 +1462,10 @@ async function runDiscoveryPipelineWithState(
   const stage1Text = stage1Response.choices[0]?.message.content;
   if (!stage1Text)
     throw new Error("Discovery Stage 1 returned an empty response");
-  const stage1 = DiscoveryStage1Schema.parse(JSON.parse(stage1Text));
+  const stage1Draft = DiscoveryStage1DraftSchema.parse(JSON.parse(stage1Text));
+  const reconciledStage1 = reconcileDiscoveryStage1References(stage1Draft);
+  state.stage1Reconciliation = reconciledStage1.diagnostics;
+  const stage1 = DiscoveryStage1Schema.parse(reconciledStage1.stage1);
   state.lastCompletedStage = "stage1";
 
   const research =
@@ -1601,6 +1612,7 @@ async function runDiscoveryPipelineWithState(
     discoveries: validated.discoveries,
     inspection: {
       stage1,
+      stage1_reconciliation: reconciledStage1.diagnostics,
       identity_verification: research.identityVerification.result,
       research_results: research.results,
       discovery_candidates: validated.discoveryCandidates,

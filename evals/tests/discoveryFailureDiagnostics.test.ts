@@ -356,6 +356,7 @@ test("diagnostic JSON contains only the documented safe top-level fields", async
     "message",
     "partial_metrics",
     "question_id",
+    "stage1_reconciliation",
     "stage_reached",
   ]);
 });

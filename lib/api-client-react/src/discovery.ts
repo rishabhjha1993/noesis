@@ -206,6 +206,18 @@ export interface DiscoveryBatchValidationIssue {
   safe_message: string;
 }
 
+export interface DiscoveryStage1ReconciliationDiagnostics {
+  applied: boolean;
+  unknown_candidate_region_references_removed: number;
+  candidate_ids_with_removed_region_references: string[];
+  candidate_ids_dropped: string[];
+  unknown_hypothesis_region_references_removed: number;
+  hypothesis_ids_with_removed_region_references: string[];
+  unknown_hypothesis_question_references_removed: number;
+  hypothesis_ids_with_removed_question_references: string[];
+  hypothesis_ids_dropped: string[];
+}
+
 export interface DiscoveryRunResult {
   version: string;
   regions: DiscoveryRegion[];
@@ -217,6 +229,7 @@ export interface DiscoveryRunResult {
       candidates: DiscoveryCandidate[];
       identity_hypotheses: DiscoveryIdentityHypothesis[];
     };
+    stage1_reconciliation?: DiscoveryStage1ReconciliationDiagnostics;
     identity_verification: DiscoveryIdentityVerification | null;
     research_results: DiscoveryResearchResult[];
     discovery_candidates: Record<string, string[]>;
@@ -323,6 +336,7 @@ export interface DiscoveryFailureDiagnostic {
   research_validation_category?: DiscoveryBatchValidationIssue["validation_category"];
   safe_validation_message?: string;
   affected_candidate_ids?: string[];
+  stage1_reconciliation?: DiscoveryStage1ReconciliationDiagnostics;
   validation_diagnostics_version?: string;
   validation_issues?: DiscoveryBatchValidationIssue[];
   batch_candidate_state?: {

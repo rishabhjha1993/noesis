@@ -78,15 +78,17 @@ export const DiscoveryIdentityHypothesisSchema = z
   })
   .strict();
 
-export const DiscoveryStage1Schema = z
+export const DiscoveryStage1DraftSchema = z
   .object({
     image_summary: NonEmptyText,
     regions: z.array(DiscoveryRegionSchema).min(1).max(12),
     candidates: z.array(DiscoveryCandidateSchema).max(8),
     identity_hypotheses: z.array(DiscoveryIdentityHypothesisSchema).max(4),
   })
-  .strict()
-  .superRefine((stage1, context) => {
+  .strict();
+
+export const DiscoveryStage1Schema = DiscoveryStage1DraftSchema.superRefine(
+  (stage1, context) => {
     const regionIds = new Set<string>();
     for (const region of stage1.regions) {
       if (regionIds.has(region.id)) {
@@ -169,7 +171,8 @@ export const DiscoveryStage1Schema = z
         });
       }
     }
-  });
+  },
+);
 
 export const DiscoverySourceSchema = z
   .object({
@@ -324,6 +327,7 @@ export type DiscoveryCandidate = z.infer<typeof DiscoveryCandidateSchema>;
 export type DiscoveryIdentityHypothesis = z.infer<
   typeof DiscoveryIdentityHypothesisSchema
 >;
+export type DiscoveryStage1Draft = z.infer<typeof DiscoveryStage1DraftSchema>;
 export type DiscoveryStage1 = z.infer<typeof DiscoveryStage1Schema>;
 export type DiscoverySource = z.infer<typeof DiscoverySourceSchema>;
 export type DiscoveryResearchResult = z.infer<
@@ -337,9 +341,132 @@ export type DiscoveryDraft = z.infer<typeof DiscoveryDraftSchema>;
 
 export interface DiscoveryInspection {
   stage1: DiscoveryStage1;
+  stage1_reconciliation: DiscoveryStage1ReconciliationDiagnostics;
   identity_verification: DiscoveryIdentityVerification | null;
   research_results: DiscoveryResearchResult[];
   discovery_candidates: Record<string, string[]>;
+}
+
+export interface DiscoveryStage1ReconciliationDiagnostics {
+  applied: boolean;
+  unknown_candidate_region_references_removed: number;
+  candidate_ids_with_removed_region_references: string[];
+  candidate_ids_dropped: string[];
+  unknown_hypothesis_region_references_removed: number;
+  hypothesis_ids_with_removed_region_references: string[];
+  unknown_hypothesis_question_references_removed: number;
+  hypothesis_ids_with_removed_question_references: string[];
+  hypothesis_ids_dropped: string[];
+}
+
+export function reconcileDiscoveryStage1References(
+  draft: DiscoveryStage1Draft,
+): {
+  stage1: DiscoveryStage1Draft;
+  diagnostics: DiscoveryStage1ReconciliationDiagnostics;
+} {
+  const regionIds = new Set(draft.regions.map((region) => region.id));
+  const candidateIdsWithRemovedRegionReferences: string[] = [];
+  const candidateIdsDropped: string[] = [];
+  let unknownCandidateRegionReferencesRemoved = 0;
+
+  const candidates = draft.candidates.flatMap((candidate) => {
+    const validRegionIds = candidate.region_ids.filter((regionId) =>
+      regionIds.has(regionId),
+    );
+    const removed = candidate.region_ids.length - validRegionIds.length;
+    if (removed > 0) {
+      unknownCandidateRegionReferencesRemoved += removed;
+      candidateIdsWithRemovedRegionReferences.push(candidate.id);
+    }
+    if (validRegionIds.length === 0) {
+      candidateIdsDropped.push(candidate.id);
+      return [];
+    }
+    return removed === 0
+      ? [candidate]
+      : [{ ...candidate, region_ids: validRegionIds }];
+  });
+
+  const survivingQuestionIds = new Set(
+    candidates.map((candidate) => candidate.question_id),
+  );
+  const hypothesisIdsWithRemovedRegionReferences: string[] = [];
+  const hypothesisIdsWithRemovedQuestionReferences: string[] = [];
+  const hypothesisIdsDropped: string[] = [];
+  let unknownHypothesisRegionReferencesRemoved = 0;
+  let unknownHypothesisQuestionReferencesRemoved = 0;
+
+  const identityHypotheses = draft.identity_hypotheses.flatMap((hypothesis) => {
+    const validRegionIds = hypothesis.region_ids.filter((regionId) =>
+      regionIds.has(regionId),
+    );
+    const removedRegions = hypothesis.region_ids.length - validRegionIds.length;
+    if (removedRegions > 0) {
+      unknownHypothesisRegionReferencesRemoved += removedRegions;
+      hypothesisIdsWithRemovedRegionReferences.push(hypothesis.id);
+    }
+
+    const validQuestionIds = hypothesis.relevant_question_ids.filter(
+      (questionId) => survivingQuestionIds.has(questionId),
+    );
+    const removedQuestions =
+      hypothesis.relevant_question_ids.length - validQuestionIds.length;
+    if (removedQuestions > 0) {
+      unknownHypothesisQuestionReferencesRemoved += removedQuestions;
+      hypothesisIdsWithRemovedQuestionReferences.push(hypothesis.id);
+    }
+
+    const violatesQuestionInvariant = hypothesis.verification_would_help
+      ? validQuestionIds.length === 0
+      : validQuestionIds.length > 0;
+    if (validRegionIds.length === 0 || violatesQuestionInvariant) {
+      hypothesisIdsDropped.push(hypothesis.id);
+      return [];
+    }
+
+    return removedRegions === 0 && removedQuestions === 0
+      ? [hypothesis]
+      : [
+          {
+            ...hypothesis,
+            region_ids: validRegionIds,
+            relevant_question_ids: validQuestionIds,
+          },
+        ];
+  });
+
+  const diagnostics = {
+    applied:
+      unknownCandidateRegionReferencesRemoved > 0 ||
+      candidateIdsDropped.length > 0 ||
+      unknownHypothesisRegionReferencesRemoved > 0 ||
+      unknownHypothesisQuestionReferencesRemoved > 0 ||
+      hypothesisIdsDropped.length > 0,
+    unknown_candidate_region_references_removed:
+      unknownCandidateRegionReferencesRemoved,
+    candidate_ids_with_removed_region_references:
+      candidateIdsWithRemovedRegionReferences,
+    candidate_ids_dropped: candidateIdsDropped,
+    unknown_hypothesis_region_references_removed:
+      unknownHypothesisRegionReferencesRemoved,
+    hypothesis_ids_with_removed_region_references:
+      hypothesisIdsWithRemovedRegionReferences,
+    unknown_hypothesis_question_references_removed:
+      unknownHypothesisQuestionReferencesRemoved,
+    hypothesis_ids_with_removed_question_references:
+      hypothesisIdsWithRemovedQuestionReferences,
+    hypothesis_ids_dropped: hypothesisIdsDropped,
+  } satisfies DiscoveryStage1ReconciliationDiagnostics;
+
+  return {
+    stage1: {
+      ...draft,
+      candidates,
+      identity_hypotheses: identityHypotheses,
+    },
+    diagnostics,
+  };
 }
 
 export interface ValidatedDiscoveries {

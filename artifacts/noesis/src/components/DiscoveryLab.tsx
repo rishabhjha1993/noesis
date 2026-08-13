@@ -442,6 +442,24 @@ export function DiscoveryLab() {
                     </strong>{" "}
                     {result.metrics.stage2.candidate_research_api_calls}
                   </p>
+                  <p>
+                    <strong className="text-foreground">
+                      Stage 2 economics:
+                    </strong>{" "}
+                    model tokens{" "}
+                    {money(
+                      result.metrics.stage2.model_token_cost_usd ??
+                        result.metrics.stage2.cost_usd,
+                    )}{" "}
+                    · web search{" "}
+                    {result.metrics.stage2.web_search_calls ?? "n/a"}
+                    {" calls / "}
+                    {money(result.metrics.stage2.tool_cost_usd ?? null)} · total{" "}
+                    {money(
+                      result.metrics.stage2.total_known_cost_usd ??
+                        result.metrics.stage2.cost_usd,
+                    )}
+                  </p>
                   {result.metrics.stage2.batch && (
                     <>
                       <p>
@@ -466,6 +484,9 @@ export function DiscoveryLab() {
                 {(selectedCandidates ?? []).map((candidate) => {
                   const research = result.inspection.research_results.find(
                     (item) => item.candidate_id === candidate.id,
+                  );
+                  const researchMetrics = result.metrics.stage2.calls.find(
+                    (call) => call.candidate_id === candidate.id,
                   );
                   return (
                     <div
@@ -500,6 +521,26 @@ export function DiscoveryLab() {
                         <strong className="text-foreground">Regions:</strong>{" "}
                         {candidate.region_ids.join(", ")}
                       </p>
+                      {researchMetrics && (
+                        <p>
+                          <strong className="text-foreground">
+                            Research economics:
+                          </strong>{" "}
+                          {researchMetrics.usage.model} · model tokens{" "}
+                          {money(
+                            researchMetrics.model_token_cost_usd ??
+                              researchMetrics.cost_usd,
+                          )}{" "}
+                          · web search{" "}
+                          {researchMetrics.web_search_calls ?? "n/a"}
+                          {" calls / "}
+                          {money(researchMetrics.tool_cost_usd ?? null)} · total{" "}
+                          {money(
+                            researchMetrics.total_known_cost_usd ??
+                              researchMetrics.cost_usd,
+                          )}
+                        </p>
+                      )}
                     </div>
                   );
                 })}
@@ -508,7 +549,22 @@ export function DiscoveryLab() {
                     Total latency: {seconds(result.metrics.total_latency_ms)}
                   </span>
                   <span>
-                    Total cost: {money(result.metrics.total_cost_usd)}
+                    Model-token cost:{" "}
+                    {money(
+                      result.metrics.model_token_cost_usd ??
+                        result.metrics.total_cost_usd,
+                    )}
+                  </span>
+                  <span>
+                    Web search: {result.metrics.web_search_calls ?? "n/a"} calls
+                    / {money(result.metrics.tool_cost_usd ?? null)}
+                  </span>
+                  <span>
+                    Total known cost:{" "}
+                    {money(
+                      result.metrics.total_known_cost_usd ??
+                        result.metrics.total_cost_usd,
+                    )}
                   </span>
                   <span>
                     Stage 1: {result.metrics.stage1.usage.model} /{" "}
@@ -663,7 +719,25 @@ export function DiscoveryLab() {
                   )}
                   <span>Runtime: {seconds(failureDiagnostic.elapsed_ms)}</span>
                   <span>
-                    Known cost:{" "}
+                    Known model-token cost:{" "}
+                    {money(
+                      failureDiagnostic.partial_metrics
+                        .known_model_token_cost_usd ??
+                        failureDiagnostic.partial_metrics.known_total_cost_usd,
+                    )}
+                  </span>
+                  <span>
+                    Known web search:{" "}
+                    {failureDiagnostic.partial_metrics.known_web_search_calls ??
+                      "n/a"}
+                    {" calls / "}
+                    {money(
+                      failureDiagnostic.partial_metrics.known_tool_cost_usd ??
+                        null,
+                    )}
+                  </span>
+                  <span>
+                    Known total cost:{" "}
                     {money(
                       failureDiagnostic.partial_metrics.known_total_cost_usd,
                     )}

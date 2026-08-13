@@ -4,7 +4,10 @@ import {
   normalizeChatUsage,
   imageDimensions,
 } from "../../artifacts/api-server/src/lib/analysisMetrics";
-import { estimateModelCost } from "../../artifacts/api-server/src/lib/modelPricing";
+import {
+  estimateModelCost,
+  estimateWebSearchToolCost,
+} from "../../artifacts/api-server/src/lib/modelPricing";
 
 test("normalizes Chat Completions usage details without inventing values", () => {
   const response = {
@@ -57,7 +60,7 @@ test("uses the supplied Terra and Luna rates", () => {
       cached_input_tokens: 0,
       output_tokens: 1_000_000,
     }).usd,
-    17.5,
+    14,
   );
   assert.equal(
     estimateModelCost({
@@ -68,6 +71,13 @@ test("uses the supplied Terra and Luna rates", () => {
     }).usd,
     1.4,
   );
+});
+
+test("prices observed web-search tool calls separately", () => {
+  assert.equal(estimateWebSearchToolCost(0), 0);
+  assert.equal(estimateWebSearchToolCost(4), 0.04);
+  assert.throws(() => estimateWebSearchToolCost(-1));
+  assert.throws(() => estimateWebSearchToolCost(1.5));
 });
 
 test("Luna static same-token counterfactual uses current documented rates", () => {

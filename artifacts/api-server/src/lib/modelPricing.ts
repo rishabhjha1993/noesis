@@ -19,9 +19,9 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPrice>> = {
     outputPerMillion: 30,
   },
   "gpt-5.6-terra": {
-    inputPerMillion: 2.5,
-    cachedInputPerMillion: 0.25,
-    outputPerMillion: 15,
+    inputPerMillion: 2,
+    cachedInputPerMillion: 0.2,
+    outputPerMillion: 12,
   },
   "gpt-5.6-luna": {
     inputPerMillion: 0.2,
@@ -29,6 +29,16 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPrice>> = {
     outputPerMillion: 1.2,
   },
 };
+
+// Official OpenAI pricing: $10 per 1,000 web-search calls.
+export const WEB_SEARCH_TOOL_CALL_COST_USD = 0.01;
+
+export function estimateWebSearchToolCost(callCount: number): number {
+  if (!Number.isSafeInteger(callCount) || callCount < 0) {
+    throw new Error("Web-search call count must be a non-negative integer");
+  }
+  return callCount * WEB_SEARCH_TOOL_CALL_COST_USD;
+}
 
 export interface UsageForCost {
   model: string;

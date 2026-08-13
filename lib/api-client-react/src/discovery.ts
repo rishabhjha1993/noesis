@@ -125,6 +125,10 @@ export interface DiscoveryUsageMetrics {
 
 export interface DiscoveryStageMetrics {
   usage: DiscoveryUsageMetrics;
+  web_search_calls?: number;
+  model_token_cost_usd?: number | null;
+  tool_cost_usd?: number;
+  total_known_cost_usd?: number | null;
   cost_usd: number | null;
   cost_reason: string | null;
 }
@@ -140,6 +144,10 @@ export interface DiscoveryIdentityVerificationMetrics {
   ran: boolean;
   status: "not_run" | "verified" | "unverified" | "conflicted";
   usage: DiscoveryUsageMetrics | null;
+  web_search_calls?: number;
+  model_token_cost_usd?: number | null;
+  tool_cost_usd?: number;
+  total_known_cost_usd?: number | null;
   cost_usd: number | null;
   cost_reason: string | null;
 }
@@ -233,6 +241,10 @@ export interface DiscoveryRunResult {
       questions_sent: number;
       latency_ms: number;
       usage: DiscoveryUsageMetrics;
+      web_search_calls?: number;
+      model_token_cost_usd?: number | null;
+      tool_cost_usd?: number;
+      total_known_cost_usd?: number | null;
       cost_usd: number | null;
       identity_verification: DiscoveryIdentityVerificationMetrics;
       candidate_calls_using_verified_identity: number;
@@ -246,6 +258,10 @@ export interface DiscoveryRunResult {
       discoveries_returned: number;
     };
     total_latency_ms: number;
+    web_search_calls?: number;
+    model_token_cost_usd?: number | null;
+    tool_cost_usd?: number;
+    total_known_cost_usd?: number | null;
     total_cost_usd: number | null;
     cost_per_successful_analysis_usd: number | null;
     cost_per_final_discovery_usd: number | null;
@@ -275,6 +291,10 @@ export interface DiscoverySafeUsageMetrics {
 
 export interface DiscoverySafeStageMetrics {
   usage: DiscoverySafeUsageMetrics;
+  web_search_calls?: number;
+  model_token_cost_usd?: number | null;
+  tool_cost_usd?: number;
+  total_known_cost_usd?: number | null;
   cost_usd: number | null;
   cost_reason: string | null;
 }
@@ -330,10 +350,17 @@ export interface DiscoveryFailureDiagnostic {
         }
       >;
       known_usage: DiscoverySafeUsageMetrics | null;
+      known_web_search_calls?: number;
+      known_model_token_cost_usd?: number | null;
+      known_tool_cost_usd?: number;
+      known_total_cost_usd?: number | null;
       known_cost_usd: number | null;
     };
     stage3: DiscoverySafeStageMetrics | null;
     known_total_tokens: number | null;
+    known_web_search_calls?: number;
+    known_model_token_cost_usd?: number | null;
+    known_tool_cost_usd?: number;
     known_total_cost_usd: number | null;
   };
 }

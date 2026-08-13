@@ -129,11 +129,18 @@ function responsesOutput(
   model: string,
   text: string,
   citation?: { title: string; url: string },
+  webSearchCalls = 1,
 ) {
   return {
     model,
     output_text: text,
     output: [
+      ...Array.from({ length: webSearchCalls }, (_, index) => ({
+        id: `search-${index}`,
+        type: "web_search_call",
+        status: "completed",
+        action: { type: "search", queries: [`query-${index}`] },
+      })),
       {
         type: "message",
         content: [
@@ -232,6 +239,7 @@ function fakeClient(
             model,
             "ANSWERED: A candidate-local cited finding.",
             { title: "Candidate one", url: "https://example.com/c1" },
+            2,
           );
         }
         if (id === "c2") {
@@ -383,8 +391,22 @@ test("C1 preserves baseline candidate requests and source integrity", async () =
   assert.equal(luna.metrics.research_gate_passed, 3);
   assert.equal(baseline.metrics.research_gate_passed, 3);
   assert.equal(luna.metrics.stage1_candidates, 4);
-  assert.equal(luna.metrics.stage2.calls[0]?.cost_usd, 0.000044);
-  assert.equal(luna.metrics.stage2.cost_usd, 0.000682);
+  assert.equal(luna.metrics.stage2.calls[0]?.model_token_cost_usd, 0.000044);
+  assert.equal(luna.metrics.stage2.calls[0]?.web_search_calls, 2);
+  assert.equal(luna.metrics.stage2.calls[0]?.tool_cost_usd, 0.02);
+  assert.equal(luna.metrics.stage2.calls[0]?.total_known_cost_usd, 0.020044);
+  assert.equal(luna.metrics.stage2.web_search_calls, 5);
+  assert.equal(luna.metrics.stage2.model_token_cost_usd, 0.000572);
+  assert.equal(luna.metrics.stage2.tool_cost_usd, 0.05);
+  assert.ok(
+    Math.abs(luna.metrics.stage2.total_known_cost_usd! - 0.050572) < 1e-12,
+  );
+  assert.ok(Math.abs(luna.metrics.stage2.cost_usd! - 0.050572) < 1e-12);
+  assert.equal(luna.metrics.web_search_calls, 5);
+  assert.equal(luna.metrics.model_token_cost_usd, 0.002772);
+  assert.equal(luna.metrics.tool_cost_usd, 0.05);
+  assert.ok(Math.abs(luna.metrics.total_known_cost_usd! - 0.052772) < 1e-12);
+  assert.ok(Math.abs(luna.metrics.total_cost_usd! - 0.052772) < 1e-12);
   assert.equal(luna.metrics.stage2.batch, null);
   assert.deepEqual(luna.discoveries, baseline.discoveries);
   assert.equal(luna.version, DISCOVERY_LUNA_RESEARCH_ENGINE_VERSION);
@@ -397,6 +419,11 @@ test("C1 preserves baseline candidate requests and source integrity", async () =
   assert.deepEqual(
     evalPayload.metrics.stage2.calls.map((call) => call.usage.model),
     Array(3).fill(DISCOVERY_LUNA_RESEARCH_MODEL),
+  );
+  assert.equal(evalPayload.metrics.web_search_calls, 5);
+  assert.equal(evalPayload.metrics.tool_cost_usd, 0.05);
+  assert.ok(
+    Math.abs(evalPayload.metrics.total_known_cost_usd! - 0.052772) < 1e-12,
   );
   assert.doesNotMatch(
     JSON.stringify(evalPayload),
@@ -448,6 +475,22 @@ test("C1 provider failures surface without Terra fallback or hidden retry", asyn
         error.diagnostic.partial_metrics.research.known_usage?.model,
         DISCOVERY_STAGE2_MODEL,
       );
+      assert.equal(
+        error.diagnostic.partial_metrics.research.known_web_search_calls,
+        1,
+      );
+      assert.equal(
+        error.diagnostic.partial_metrics.research.known_model_token_cost_usd,
+        0.00044,
+      );
+      assert.equal(
+        error.diagnostic.partial_metrics.research.known_tool_cost_usd,
+        0.01,
+      );
+      assert.equal(
+        error.diagnostic.partial_metrics.research.known_total_cost_usd,
+        0.01044,
+      );
       return true;
     },
   );
@@ -471,7 +514,7 @@ test("same-token cost comparison uses observed tokens, not a quality prediction"
     model: DISCOVERY_LUNA_RESEARCH_MODEL,
     ...retainedTokens,
   }).usd;
-  assert.equal(terra, 0.00055);
+  assert.equal(terra, 0.00044);
   assert.equal(luna, 0.000044);
-  assert.ok(Math.abs(luna! / terra! - 0.08) < Number.EPSILON);
+  assert.ok(Math.abs(luna! / terra! - 0.1) < Number.EPSILON);
 });

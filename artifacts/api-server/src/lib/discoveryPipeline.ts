@@ -32,7 +32,7 @@ import {
   type DiscoveryBatchValidationCategory,
   type DiscoveryBatchValidationIssue,
 } from "./discoveryBatchResearch";
-import { estimateModelCost } from "./modelPricing";
+import { estimateModelCost, estimateWebSearchToolCost } from "./modelPricing";
 
 export const DISCOVERY_ENGINE_VERSION = "discovery-engine-v1";
 export const DISCOVERY_BATCHED_RESEARCH_ENGINE_VERSION =
@@ -180,9 +180,22 @@ export interface DiscoveryUsageMetrics {
 
 export interface DiscoveryStageMetrics {
   usage: DiscoveryUsageMetrics;
+  web_search_calls: number;
+  model_token_cost_usd: number | null;
+  tool_cost_usd: number;
+  total_known_cost_usd: number | null;
+  /** Backward-compatible alias for total_known_cost_usd. */
   cost_usd: number | null;
   cost_reason: string | null;
 }
+
+type DiscoveryCostMetrics = Pick<
+  DiscoveryStageMetrics,
+  | "web_search_calls"
+  | "model_token_cost_usd"
+  | "tool_cost_usd"
+  | "total_known_cost_usd"
+>;
 
 export interface DiscoveryResearchCallMetrics extends DiscoveryStageMetrics {
   candidate_id: string;
@@ -195,6 +208,10 @@ export interface DiscoveryIdentityVerificationMetrics {
   ran: boolean;
   status: "not_run" | "verified" | "unverified" | "conflicted";
   usage: DiscoveryUsageMetrics | null;
+  web_search_calls: number;
+  model_token_cost_usd: number | null;
+  tool_cost_usd: number;
+  total_known_cost_usd: number | null;
   cost_usd: number | null;
   cost_reason: string | null;
 }
@@ -232,6 +249,10 @@ export interface DiscoveryPipelineMetrics {
     questions_sent: number;
     latency_ms: number;
     usage: DiscoveryUsageMetrics;
+    web_search_calls: number;
+    model_token_cost_usd: number | null;
+    tool_cost_usd: number;
+    total_known_cost_usd: number | null;
     cost_usd: number | null;
     identity_verification: DiscoveryIdentityVerificationMetrics;
     candidate_calls_using_verified_identity: number;
@@ -243,6 +264,11 @@ export interface DiscoveryPipelineMetrics {
   };
   stage3: DiscoveryStageMetrics & { discoveries_returned: number };
   total_latency_ms: number;
+  web_search_calls: number;
+  model_token_cost_usd: number | null;
+  tool_cost_usd: number;
+  total_known_cost_usd: number | null;
+  /** Backward-compatible alias for total_known_cost_usd. */
   total_cost_usd: number | null;
   cost_per_successful_analysis_usd: number | null;
   cost_per_final_discovery_usd: number | null;
@@ -291,6 +317,10 @@ export interface DiscoverySafeUsageMetrics {
 
 export interface DiscoverySafeStageMetrics {
   usage: DiscoverySafeUsageMetrics;
+  web_search_calls: number;
+  model_token_cost_usd: number | null;
+  tool_cost_usd: number;
+  total_known_cost_usd: number | null;
   cost_usd: number | null;
   cost_reason: string | null;
 }
@@ -337,10 +367,18 @@ export interface DiscoveryFailureDiagnostic {
       attempted_calls: number;
       completed_calls: DiscoveryCompletedResearchCallMetrics[];
       known_usage: DiscoverySafeUsageMetrics | null;
+      known_web_search_calls: number;
+      known_model_token_cost_usd: number | null;
+      known_tool_cost_usd: number;
+      known_total_cost_usd: number | null;
+      /** Backward-compatible alias for known_total_cost_usd. */
       known_cost_usd: number | null;
     };
     stage3: DiscoverySafeStageMetrics | null;
     known_total_tokens: number | null;
+    known_web_search_calls: number;
+    known_model_token_cost_usd: number | null;
+    known_tool_cost_usd: number;
     known_total_cost_usd: number | null;
   };
 }
@@ -484,9 +522,28 @@ function aggregateUsage(
   };
 }
 
-function stageMetrics(usage: DiscoveryUsageMetrics): DiscoveryStageMetrics {
-  const cost = estimateModelCost(usage);
-  return { usage, cost_usd: cost.usd, cost_reason: cost.reason };
+function countWebSearchCalls(response: Response): number {
+  return response.output.filter((item) => item.type === "web_search_call")
+    .length;
+}
+
+function stageMetrics(
+  usage: DiscoveryUsageMetrics,
+  webSearchCalls = 0,
+): DiscoveryStageMetrics {
+  const modelTokenCost = estimateModelCost(usage);
+  const toolCost = estimateWebSearchToolCost(webSearchCalls);
+  const totalKnownCost =
+    modelTokenCost.usd === null ? null : modelTokenCost.usd + toolCost;
+  return {
+    usage,
+    web_search_calls: webSearchCalls,
+    model_token_cost_usd: modelTokenCost.usd,
+    tool_cost_usd: toolCost,
+    total_known_cost_usd: totalKnownCost,
+    cost_usd: totalKnownCost,
+    cost_reason: modelTokenCost.reason,
+  };
 }
 
 function safeUsage(usage: DiscoveryUsageMetrics): DiscoverySafeUsageMetrics {
@@ -504,6 +561,10 @@ function safeUsage(usage: DiscoveryUsageMetrics): DiscoverySafeUsageMetrics {
 function safeStage(metrics: DiscoveryStageMetrics): DiscoverySafeStageMetrics {
   return {
     usage: safeUsage(metrics.usage),
+    web_search_calls: metrics.web_search_calls,
+    model_token_cost_usd: metrics.model_token_cost_usd,
+    tool_cost_usd: metrics.tool_cost_usd,
+    total_known_cost_usd: metrics.total_known_cost_usd,
     cost_usd: metrics.cost_usd,
     cost_reason: metrics.cost_reason,
   };
@@ -683,6 +744,24 @@ function createFailureDiagnostic(
         attempted_calls: state.attemptedResearchCalls,
         completed_calls: completedResearchCalls,
         known_usage: knownStage2Usage ? safeUsage(knownStage2Usage) : null,
+        known_web_search_calls: state.knownStage2Metrics.reduce(
+          (sum, metrics) => sum + metrics.web_search_calls,
+          0,
+        ),
+        known_model_token_cost_usd: sumKnown(
+          state.knownStage2Metrics.map(
+            (metrics) => metrics.model_token_cost_usd,
+          ),
+        ),
+        known_tool_cost_usd: state.knownStage2Metrics.reduce(
+          (sum, metrics) => sum + metrics.tool_cost_usd,
+          0,
+        ),
+        known_total_cost_usd: sumKnown(
+          state.knownStage2Metrics.map(
+            (metrics) => metrics.total_known_cost_usd,
+          ),
+        ),
         known_cost_usd: sumKnown(
           state.knownStage2Metrics.map((metrics) => metrics.cost_usd),
         ),
@@ -691,8 +770,19 @@ function createFailureDiagnostic(
       known_total_tokens: sumKnown(
         knownMetrics.map((metrics) => metrics.usage.total_tokens),
       ),
+      known_web_search_calls: knownMetrics.reduce(
+        (sum, metrics) => sum + metrics.web_search_calls,
+        0,
+      ),
+      known_model_token_cost_usd: sumKnown(
+        knownMetrics.map((metrics) => metrics.model_token_cost_usd),
+      ),
+      known_tool_cost_usd: knownMetrics.reduce(
+        (sum, metrics) => sum + metrics.tool_cost_usd,
+        0,
+      ),
       known_total_cost_usd: sumKnown(
-        knownMetrics.map((metrics) => metrics.cost_usd),
+        knownMetrics.map((metrics) => metrics.total_known_cost_usd),
       ),
     },
   };
@@ -803,6 +893,10 @@ function identityNotRun(): DiscoveryIdentityVerificationExecution {
       ran: false,
       status: "not_run",
       usage: null,
+      web_search_calls: 0,
+      model_token_cost_usd: null,
+      tool_cost_usd: 0,
+      total_known_cost_usd: null,
       cost_usd: null,
       cost_reason: null,
     },
@@ -882,7 +976,7 @@ async function runIdentityVerification(
     ].join("\n"),
   });
   const usage = normalizeResponseUsage(response, Date.now() - started);
-  const metrics = stageMetrics(usage);
+  const metrics = stageMetrics(usage, countWebSearchCalls(response));
   state.knownStage2Metrics.push(metrics);
   state.identityVerification = {
     ...metrics,
@@ -987,7 +1081,7 @@ async function runSelectiveResearchWithState(
       ].join("\n"),
     });
     const usage = normalizeResponseUsage(response, Date.now() - started);
-    const metrics = stageMetrics(usage);
+    const metrics = stageMetrics(usage, countWebSearchCalls(response));
     state.knownStage2Metrics.push(metrics);
     const sources = extractValidatedSources(response);
     const cleaned = cleanResearchFinding(response.output_text);
@@ -1109,7 +1203,7 @@ async function runBatchedSelectiveResearchWithState(
     ].join("\n"),
   });
   const usage = normalizeResponseUsage(response, Date.now() - started);
-  const metrics = stageMetrics(usage);
+  const metrics = stageMetrics(usage, countWebSearchCalls(response));
   state.knownStage2Metrics.push(metrics);
   state.researchFailureScope = "batch_schema";
 
@@ -1335,13 +1429,26 @@ async function runDiscoveryPipelineWithState(
     modelAllocation.candidateResearch,
     stage2Usages,
   );
-  const stage2Costs = research.batchMetrics
-    ? [research.batchMetrics.cost_usd]
-    : research.calls.map((call) => call.cost_usd);
+  const stage2Components: DiscoveryCostMetrics[] = research.batchMetrics
+    ? [research.batchMetrics]
+    : [...research.calls];
   if (research.identityVerification.metrics.ran) {
-    stage2Costs.unshift(research.identityVerification.metrics.cost_usd);
+    stage2Components.unshift(research.identityVerification.metrics);
   }
-  const stage2Cost = sumNullable(stage2Costs);
+  const stage2WebSearchCalls = stage2Components.reduce(
+    (sum, metrics) => sum + metrics.web_search_calls,
+    0,
+  );
+  const stage2ModelTokenCost = sumNullable(
+    stage2Components.map((metrics) => metrics.model_token_cost_usd),
+  );
+  const stage2ToolCost = stage2Components.reduce(
+    (sum, metrics) => sum + metrics.tool_cost_usd,
+    0,
+  );
+  const stage2Cost = sumNullable(
+    stage2Components.map((metrics) => metrics.total_known_cost_usd),
+  );
 
   state.stageReached = "stage3";
   const stage3Started = Date.now();
@@ -1429,15 +1536,26 @@ async function runDiscoveryPipelineWithState(
     research.identityVerification.result,
   );
 
-  const totalCost = sumNullable([
-    stage1Metrics.cost_usd,
-    stage2Cost,
-    stage3Metrics.cost_usd,
+  const totalModelTokenCost = sumNullable([
+    stage1Metrics.model_token_cost_usd,
+    stage2ModelTokenCost,
+    stage3Metrics.model_token_cost_usd,
   ]);
+  const totalToolCost =
+    stage1Metrics.tool_cost_usd + stage2ToolCost + stage3Metrics.tool_cost_usd;
+  const totalKnownCost = sumNullable([
+    stage1Metrics.total_known_cost_usd,
+    stage2Cost,
+    stage3Metrics.total_known_cost_usd,
+  ]);
+  const totalWebSearchCalls =
+    stage1Metrics.web_search_calls +
+    stage2WebSearchCalls +
+    stage3Metrics.web_search_calls;
   const engineVersion = discoveryEngineVersionForVariant(variant);
   const costPerFinalDiscovery =
-    totalCost !== null && validated.discoveries.length > 0
-      ? totalCost / validated.discoveries.length
+    totalKnownCost !== null && validated.discoveries.length > 0
+      ? totalKnownCost / validated.discoveries.length
       : null;
   const answeredCandidates = research.results.filter(
     (result) => result.status === "answered",
@@ -1469,6 +1587,10 @@ async function runDiscoveryPipelineWithState(
         questions_sent: research.gatedCandidates,
         latency_ms: stage2Usage.latency_ms,
         usage: stage2Usage,
+        web_search_calls: stage2WebSearchCalls,
+        model_token_cost_usd: stage2ModelTokenCost,
+        tool_cost_usd: stage2ToolCost,
+        total_known_cost_usd: stage2Cost,
         cost_usd: stage2Cost,
         identity_verification: research.identityVerification.metrics,
         candidate_calls_using_verified_identity:
@@ -1484,8 +1606,12 @@ async function runDiscoveryPipelineWithState(
         discoveries_returned: validated.discoveries.length,
       },
       total_latency_ms: Date.now() - pipelineStarted,
-      total_cost_usd: totalCost,
-      cost_per_successful_analysis_usd: totalCost,
+      web_search_calls: totalWebSearchCalls,
+      model_token_cost_usd: totalModelTokenCost,
+      tool_cost_usd: totalToolCost,
+      total_known_cost_usd: totalKnownCost,
+      total_cost_usd: totalKnownCost,
+      cost_per_successful_analysis_usd: totalKnownCost,
       cost_per_final_discovery_usd: costPerFinalDiscovery,
       stage1_candidates: stage1.candidates.length,
       research_gate_passed: research.gatedCandidates,

@@ -563,8 +563,14 @@ test("all-insufficient unresolved research permits seen output but not researche
       .discoveries.length,
     1,
   );
-  const researched = structuredClone(seen);
-  researched.discoveries[0]!.provenance = "researched";
+  const researched = {
+    discoveries: [
+      {
+        ...structuredClone(seen.discoveries[0]!),
+        provenance: "researched" as const,
+      },
+    ],
+  };
   assert.throws(
     () =>
       validateDiscoveryOutput(

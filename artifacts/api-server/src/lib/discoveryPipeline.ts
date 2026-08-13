@@ -12,6 +12,7 @@ import {
   validateDiscoveryOutput,
   validateResearchResults,
   type Discovery,
+  type DiscoveryCandidate,
   type DiscoveryInspection,
   type DiscoveryIdentityVerification,
   type DiscoveryRegion,
@@ -45,13 +46,19 @@ export const DEFAULT_DISCOVERY_ENGINE_VARIANT: DiscoveryEngineVariant = "v1";
 export const DISCOVERY_STAGE1_MODEL = "gpt-5.6-sol";
 export const DISCOVERY_STAGE2_MODEL = "gpt-5.6-terra";
 export const DISCOVERY_LUNA_RESEARCH_MODEL = "gpt-5.6-luna";
+export const DISCOVERY_CANDIDATE_RESEARCH_MODELS = [
+  DISCOVERY_STAGE2_MODEL,
+  DISCOVERY_LUNA_RESEARCH_MODEL,
+] as const;
+export type DiscoveryCandidateResearchModel =
+  (typeof DISCOVERY_CANDIDATE_RESEARCH_MODELS)[number];
 export const DISCOVERY_STAGE3_MODEL = "gpt-5.6-sol";
 export const DISCOVERY_REASONING_EFFORT = "medium";
 
 export interface DiscoveryModelAllocation {
   stage1: string;
   identityVerification: string;
-  candidateResearch: string;
+  candidateResearch: DiscoveryCandidateResearchModel;
   stage3: string;
 }
 
@@ -1003,7 +1010,8 @@ async function runSelectiveResearchWithState(
   openai: OpenAI,
   stage1: DiscoveryStage1,
   state: DiscoveryExecutionState,
-  candidateResearchModel = DISCOVERY_STAGE2_MODEL,
+  candidateResearchModel: DiscoveryCandidateResearchModel =
+    DISCOVERY_STAGE2_MODEL,
 ): Promise<DiscoveryResearchExecution> {
   const rawResults: DiscoveryResearchResult[] = [];
   const calls: DiscoveryResearchCallMetrics[] = [];
@@ -1019,87 +1027,21 @@ async function runSelectiveResearchWithState(
     gatedQuestionIds,
     state,
   );
-  const verifiedHypothesis =
-    identityVerification.result?.status === "verified"
-      ? stage1.identity_hypotheses.find(
-          (hypothesis) =>
-            hypothesis.id === identityVerification.result?.hypothesis_id,
-        )
-      : undefined;
-
   state.stageReached = "research";
   for (const candidate of gatedCandidates) {
     state.currentCandidateId = candidate.id;
     state.currentQuestionId = candidate.question_id;
     state.attemptedResearchCalls += 1;
-    const usedVerifiedIdentityContext = Boolean(
-      candidate.identity_context_needed &&
-      verifiedHypothesis?.verification_would_help &&
-      verifiedHypothesis.relevant_question_ids.includes(candidate.question_id),
+    const completed = await runDiscoveryCandidateResearchCall(
+      openai,
+      stage1,
+      candidate,
+      identityVerification.result,
+      candidateResearchModel,
+      (metrics) => state.knownStage2Metrics.push(metrics),
     );
-    const identityContext = usedVerifiedIdentityContext
-      ? [
-          "VERIFIED IDENTITY CONTEXT (search context only):",
-          JSON.stringify({
-            canonical_identity: identityVerification.result?.canonical_identity,
-            identity_type: identityVerification.result?.identity_type,
-            location: identityVerification.result?.location,
-            verification_basis: identityVerification.result?.verification_basis,
-          }),
-        ]
-      : candidate.identity_context_needed
-        ? [
-            `IDENTITY VERIFICATION STATUS: ${identityVerification.metrics.status}.`,
-            "No verified identity context is available. Do not treat a hypothesis or similar object as the uploaded subject.",
-          ]
-        : ["IDENTITY CONTEXT: not needed for this question."];
-
-    const started = Date.now();
-    const response = await openai.responses.create({
-      model: candidateResearchModel,
-      reasoning: { effort: DISCOVERY_REASONING_EFFORT },
-      tools: [{ type: "web_search", search_context_size: "medium" }],
-      tool_choice: "required",
-      include: ["web_search_call.action.sources"],
-      store: false,
-      max_output_tokens: 3000,
-      instructions: RESEARCH_INSTRUCTIONS,
-      input: [
-        `CANDIDATE ID: ${candidate.id}`,
-        `QUESTION ID: ${candidate.question_id}`,
-        `VISIBLE TRIGGER: ${candidate.visual_trigger}`,
-        `GROUNDED OBSERVATION: ${candidate.observation}`,
-        `APPROVED QUESTION: ${candidate.investigation_question}`,
-        `WHY RESEARCH MAY DEEPEN THE IMAGE: ${candidate.research_rationale}`,
-        ...identityContext,
-        "Answer only the APPROVED QUESTION above.",
-      ].join("\n"),
-    });
-    const usage = normalizeResponseUsage(response, Date.now() - started);
-    const metrics = stageMetrics(usage, countWebSearchCalls(response));
-    state.knownStage2Metrics.push(metrics);
-    const sources = extractValidatedSources(response);
-    const cleaned = cleanResearchFinding(response.output_text);
-    const status =
-      cleaned.declaredInsufficient || sources.length === 0
-        ? "insufficient"
-        : "answered";
-    const result: DiscoveryResearchResult = {
-      candidate_id: candidate.id,
-      question_id: candidate.question_id,
-      question: candidate.investigation_question,
-      status,
-      finding: cleaned.finding,
-      sources,
-    };
+    const { result, call } = completed;
     rawResults.push(result);
-    const call = {
-      candidate_id: candidate.id,
-      question_id: candidate.question_id,
-      status,
-      used_verified_identity_context: usedVerifiedIdentityContext,
-      ...metrics,
-    } satisfies DiscoveryResearchCallMetrics;
     calls.push(call);
     state.researchCalls.push(call);
   }
@@ -1119,6 +1061,115 @@ async function runSelectiveResearchWithState(
     ).length,
     batchMetrics: null,
     batchInspection: null,
+  };
+}
+
+export function buildDiscoveryCandidateResearchRequest(
+  stage1: DiscoveryStage1,
+  candidate: DiscoveryCandidate,
+  identityVerification: DiscoveryIdentityVerification | null,
+  model: DiscoveryCandidateResearchModel,
+) {
+  const usedVerifiedIdentityContext = identityApplicableCandidateIds(
+    stage1,
+    identityVerification,
+  ).includes(candidate.id);
+  const identityContext = usedVerifiedIdentityContext
+    ? [
+        "VERIFIED IDENTITY CONTEXT (search context only):",
+        JSON.stringify({
+          canonical_identity: identityVerification?.canonical_identity,
+          identity_type: identityVerification?.identity_type,
+          location: identityVerification?.location,
+          verification_basis: identityVerification?.verification_basis,
+        }),
+      ]
+    : candidate.identity_context_needed
+      ? [
+          `IDENTITY VERIFICATION STATUS: ${identityVerification?.status ?? "not_run"}.`,
+          "No verified identity context is available. Do not treat a hypothesis or similar object as the uploaded subject.",
+        ]
+      : ["IDENTITY CONTEXT: not needed for this question."];
+
+  return {
+    usedVerifiedIdentityContext,
+    request: {
+      model,
+      reasoning: { effort: DISCOVERY_REASONING_EFFORT as "medium" },
+      tools: [
+        {
+          type: "web_search" as const,
+          search_context_size: "medium" as const,
+        },
+      ],
+      tool_choice: "required" as const,
+      include: ["web_search_call.action.sources" as const],
+      store: false,
+      max_output_tokens: 3000,
+      instructions: RESEARCH_INSTRUCTIONS,
+      input: [
+        `CANDIDATE ID: ${candidate.id}`,
+        `QUESTION ID: ${candidate.question_id}`,
+        `VISIBLE TRIGGER: ${candidate.visual_trigger}`,
+        `GROUNDED OBSERVATION: ${candidate.observation}`,
+        `APPROVED QUESTION: ${candidate.investigation_question}`,
+        `WHY RESEARCH MAY DEEPEN THE IMAGE: ${candidate.research_rationale}`,
+        ...identityContext,
+        "Answer only the APPROVED QUESTION above.",
+      ].join("\n"),
+    },
+  };
+}
+
+export async function runDiscoveryCandidateResearchCall(
+  openai: OpenAI,
+  stage1: DiscoveryStage1,
+  candidate: DiscoveryCandidate,
+  identityVerification: DiscoveryIdentityVerification | null,
+  model: DiscoveryCandidateResearchModel,
+  onMetrics?: (metrics: DiscoveryStageMetrics) => void,
+): Promise<{
+  result: DiscoveryResearchResult;
+  call: DiscoveryResearchCallMetrics;
+  metrics: DiscoveryStageMetrics;
+}> {
+  const built = buildDiscoveryCandidateResearchRequest(
+    stage1,
+    candidate,
+    identityVerification,
+    model,
+  );
+  const started = Date.now();
+  const response = await openai.responses.create(built.request);
+  const usage = normalizeResponseUsage(response, Date.now() - started);
+  const metrics = stageMetrics(usage, countWebSearchCalls(response));
+  onMetrics?.(metrics);
+  const sources = extractValidatedSources(response);
+  const cleaned = cleanResearchFinding(response.output_text);
+  const status =
+    cleaned.declaredInsufficient || sources.length === 0
+      ? "insufficient"
+      : "answered";
+  const result = validateResearchResults(stage1, [
+    {
+      candidate_id: candidate.id,
+      question_id: candidate.question_id,
+      question: candidate.investigation_question,
+      status,
+      finding: cleaned.finding,
+      sources,
+    },
+  ])[0]!;
+  return {
+    result,
+    metrics,
+    call: {
+      candidate_id: candidate.id,
+      question_id: candidate.question_id,
+      status,
+      used_verified_identity_context: built.usedVerifiedIdentityContext,
+      ...metrics,
+    },
   };
 }
 

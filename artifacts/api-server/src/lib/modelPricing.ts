@@ -24,9 +24,9 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPrice>> = {
     outputPerMillion: 15,
   },
   "gpt-5.6-luna": {
-    inputPerMillion: 1,
-    cachedInputPerMillion: 0.1,
-    outputPerMillion: 6,
+    inputPerMillion: 0.2,
+    cachedInputPerMillion: 0.02,
+    outputPerMillion: 1.2,
   },
 };
 
@@ -52,9 +52,13 @@ export interface CostEstimate {
 
 export function estimateModelCost(usage: UsageForCost): PassCostEstimate {
   const price = MODEL_PRICING[usage.model];
-  if (!price) return { usd: null, reason: `No pricing configured for ${usage.model}` };
+  if (!price)
+    return { usd: null, reason: `No pricing configured for ${usage.model}` };
   if (usage.input_tokens === null || usage.output_tokens === null) {
-    return { usd: null, reason: "Required token usage was not returned by the API" };
+    return {
+      usd: null,
+      reason: "Required token usage was not returned by the API",
+    };
   }
   const cached = usage.cached_input_tokens ?? 0;
   const uncached = Math.max(0, usage.input_tokens - cached);
@@ -77,7 +81,8 @@ export function estimatePipelineCost(
   return {
     pass1_usd: first.usd,
     pass2_usd: second.usd,
-    total_usd: first.usd === null || second.usd === null ? null : first.usd + second.usd,
+    total_usd:
+      first.usd === null || second.usd === null ? null : first.usd + second.usd,
     pass1_reason: first.reason,
     pass2_reason: second.reason,
   };

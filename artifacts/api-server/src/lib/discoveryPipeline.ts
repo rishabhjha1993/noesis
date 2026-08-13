@@ -37,19 +37,58 @@ import { estimateModelCost } from "./modelPricing";
 export const DISCOVERY_ENGINE_VERSION = "discovery-engine-v1";
 export const DISCOVERY_BATCHED_RESEARCH_ENGINE_VERSION =
   "discovery-engine-v1-batched-research";
-export type DiscoveryEngineVariant = "v1" | "v1-batched-research";
+export const DISCOVERY_LUNA_RESEARCH_ENGINE_VERSION =
+  "discovery-engine-v1-luna-research";
+export type DiscoveryEngineVariant =
+  "v1" | "v1-batched-research" | "v1-luna-research";
 export const DEFAULT_DISCOVERY_ENGINE_VARIANT: DiscoveryEngineVariant = "v1";
 export const DISCOVERY_STAGE1_MODEL = "gpt-5.6-sol";
 export const DISCOVERY_STAGE2_MODEL = "gpt-5.6-terra";
+export const DISCOVERY_LUNA_RESEARCH_MODEL = "gpt-5.6-luna";
 export const DISCOVERY_STAGE3_MODEL = "gpt-5.6-sol";
 export const DISCOVERY_REASONING_EFFORT = "medium";
+
+export interface DiscoveryModelAllocation {
+  stage1: string;
+  identityVerification: string;
+  candidateResearch: string;
+  stage3: string;
+}
+
+export function discoveryModelAllocationForVariant(
+  variant: DiscoveryEngineVariant,
+): DiscoveryModelAllocation {
+  return {
+    stage1: DISCOVERY_STAGE1_MODEL,
+    identityVerification: DISCOVERY_STAGE2_MODEL,
+    candidateResearch:
+      variant === "v1-luna-research"
+        ? DISCOVERY_LUNA_RESEARCH_MODEL
+        : DISCOVERY_STAGE2_MODEL,
+    stage3: DISCOVERY_STAGE3_MODEL,
+  };
+}
 
 export function discoveryEngineVersionForVariant(
   variant: DiscoveryEngineVariant,
 ): string {
-  return variant === "v1-batched-research"
-    ? DISCOVERY_BATCHED_RESEARCH_ENGINE_VERSION
-    : DISCOVERY_ENGINE_VERSION;
+  if (variant === "v1-batched-research") {
+    return DISCOVERY_BATCHED_RESEARCH_ENGINE_VERSION;
+  }
+  if (variant === "v1-luna-research") {
+    return DISCOVERY_LUNA_RESEARCH_ENGINE_VERSION;
+  }
+  return DISCOVERY_ENGINE_VERSION;
+}
+
+export function isDiscoveryEngineVariant(
+  value: unknown,
+): value is DiscoveryEngineVariant {
+  return (
+    value === "v1" ||
+    value === "v1-batched-research" ||
+    value === "v1-luna-research"
+  );
 }
 
 const STAGE1_PROMPT = `You are Stage 1 of Noesis Discovery Engine V1: SEE → QUESTION.
@@ -188,6 +227,7 @@ export interface DiscoveryPipelineMetrics {
   stage1: DiscoveryStageMetrics;
   stage2: {
     model: string;
+    candidate_research_model: string;
     reasoning_effort: string;
     questions_sent: number;
     latency_ms: number;
@@ -308,6 +348,7 @@ export interface DiscoveryFailureDiagnostic {
 interface DiscoveryExecutionState {
   startedAt: number;
   engineVersion: string;
+  stage2AggregateModel: string;
   stageReached: DiscoveryFailureStage;
   lastCompletedStage: DiscoveryFailureDiagnostic["last_completed_stage"];
   currentCandidateId?: string;
@@ -341,10 +382,12 @@ interface DiscoveryExecutionState {
 function createExecutionState(
   startedAt = Date.now(),
   engineVersion = DISCOVERY_ENGINE_VERSION,
+  stage2AggregateModel = DISCOVERY_STAGE2_MODEL,
 ): DiscoveryExecutionState {
   return {
     startedAt,
     engineVersion,
+    stage2AggregateModel,
     stageReached: "unknown",
     lastCompletedStage: "none",
     stage1: null,
@@ -424,8 +467,9 @@ function aggregateUsage(
   usages: DiscoveryUsageMetrics[],
 ): DiscoveryUsageMetrics {
   if (usages.length === 0) return emptyUsage(model);
+  const actualModels = [...new Set(usages.map((usage) => usage.model))];
   return {
-    model,
+    model: actualModels.join("+"),
     reasoning_effort: DISCOVERY_REASONING_EFFORT,
     input_tokens: sumNullable(usages.map((usage) => usage.input_tokens)),
     cached_input_tokens: sumNullable(
@@ -571,7 +615,7 @@ function createFailureDiagnostic(
   const knownStage2Usage =
     state.knownStage2Metrics.length > 0
       ? aggregateUsage(
-          DISCOVERY_STAGE2_MODEL,
+          state.stage2AggregateModel,
           state.knownStage2Metrics.map((metrics) => metrics.usage),
         )
       : null;
@@ -870,6 +914,7 @@ async function runSelectiveResearchWithState(
   openai: OpenAI,
   stage1: DiscoveryStage1,
   state: DiscoveryExecutionState,
+  candidateResearchModel = DISCOVERY_STAGE2_MODEL,
 ): Promise<DiscoveryResearchExecution> {
   const rawResults: DiscoveryResearchResult[] = [];
   const calls: DiscoveryResearchCallMetrics[] = [];
@@ -922,7 +967,7 @@ async function runSelectiveResearchWithState(
 
     const started = Date.now();
     const response = await openai.responses.create({
-      model: DISCOVERY_STAGE2_MODEL,
+      model: candidateResearchModel,
       reasoning: { effort: DISCOVERY_REASONING_EFFORT },
       tools: [{ type: "web_search", search_context_size: "medium" }],
       tool_choice: "required",
@@ -1227,6 +1272,7 @@ async function runDiscoveryPipelineWithState(
   state: DiscoveryExecutionState,
   variant: DiscoveryEngineVariant,
 ): Promise<DiscoveryPipelineResult> {
+  const modelAllocation = discoveryModelAllocationForVariant(variant);
   state.stageReached = "stage1";
   const stage1Started = Date.now();
   const stage1Response = await openai.chat.completions.create({
@@ -1273,14 +1319,22 @@ async function runDiscoveryPipelineWithState(
   const research =
     variant === "v1-batched-research"
       ? await runBatchedSelectiveResearchWithState(openai, stage1, state)
-      : await runSelectiveResearchWithState(openai, stage1, state);
+      : await runSelectiveResearchWithState(
+          openai,
+          stage1,
+          state,
+          modelAllocation.candidateResearch,
+        );
   const stage2Usages = research.batchMetrics
     ? [research.batchMetrics.usage]
     : research.calls.map((call) => call.usage);
   if (research.identityVerification.metrics.usage) {
     stage2Usages.unshift(research.identityVerification.metrics.usage);
   }
-  const stage2Usage = aggregateUsage(DISCOVERY_STAGE2_MODEL, stage2Usages);
+  const stage2Usage = aggregateUsage(
+    modelAllocation.candidateResearch,
+    stage2Usages,
+  );
   const stage2Costs = research.batchMetrics
     ? [research.batchMetrics.cost_usd]
     : research.calls.map((call) => call.cost_usd);
@@ -1409,7 +1463,8 @@ async function runDiscoveryPipelineWithState(
       success: true,
       stage1: stage1Metrics,
       stage2: {
-        model: DISCOVERY_STAGE2_MODEL,
+        model: modelAllocation.candidateResearch,
+        candidate_research_model: modelAllocation.candidateResearch,
         reasoning_effort: DISCOVERY_REASONING_EFFORT,
         questions_sent: research.gatedCandidates,
         latency_ms: stage2Usage.latency_ms,
@@ -1448,7 +1503,12 @@ export async function runDiscoveryPipeline(
   const timestamp = new Date().toISOString();
   const variant = options.variant ?? DEFAULT_DISCOVERY_ENGINE_VARIANT;
   const engineVersion = discoveryEngineVersionForVariant(variant);
-  const state = createExecutionState(pipelineStarted, engineVersion);
+  const modelAllocation = discoveryModelAllocationForVariant(variant);
+  const state = createExecutionState(
+    pipelineStarted,
+    engineVersion,
+    modelAllocation.candidateResearch,
+  );
 
   try {
     return await runDiscoveryPipelineWithState(

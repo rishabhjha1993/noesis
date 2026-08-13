@@ -137,6 +137,7 @@ const resultFixture: DiscoveryRunResult = {
     },
     stage2: {
       model: "gpt-5.6-terra",
+      candidate_research_model: "gpt-5.6-terra",
       reasoning_effort: "medium",
       questions_sent: 1,
       latency_ms: 1600,

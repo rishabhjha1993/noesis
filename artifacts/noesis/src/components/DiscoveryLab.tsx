@@ -8,6 +8,7 @@ import {
   UploadCloud,
 } from "lucide-react";
 import {
+  DISCOVERY_ENGINE_OPTIONS,
   getDiscoveryStatus,
   startDiscovery,
   type Discovery,
@@ -561,8 +562,11 @@ export function DiscoveryLab() {
               disabled={status === "loading"}
               className="w-full rounded-md border border-border bg-background px-3 py-2"
             >
-              <option value="v1">V1 baseline</option>
-              <option value="v1-batched-research">V1 batched research</option>
+              {DISCOVERY_ENGINE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </label>
           {imageUrl ? (
@@ -595,7 +599,11 @@ export function DiscoveryLab() {
                 className="rounded-md bg-primary px-6 py-3 font-medium text-primary-foreground hover:bg-primary/90"
               >
                 Run{" "}
-                {engineVariant === "v1" ? "V1 baseline" : "V1 batched research"}
+                {engineVariant === "v1"
+                  ? "V1 baseline"
+                  : engineVariant === "v1-batched-research"
+                    ? "V1 batched research"
+                    : "V1 Luna candidate research"}
               </button>
               <label className="cursor-pointer rounded-md border border-border px-6 py-3 font-medium hover:bg-muted">
                 Choose another

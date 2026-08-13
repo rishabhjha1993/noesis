@@ -5,7 +5,10 @@ import {
   startDiscoveryJob,
   type DiscoveryJob,
 } from "../lib/discoveryJobs";
-import type { DiscoveryEngineVariant } from "../lib/discoveryPipeline";
+import {
+  isDiscoveryEngineVariant,
+  type DiscoveryEngineVariant,
+} from "../lib/discoveryPipeline";
 import {
   analysisRateLimit,
   decodedImageBytes,
@@ -41,8 +44,7 @@ router.post("/discovery", analysisRateLimit, (req, res) => {
     .engine_variant;
   if (
     requestedVariant !== undefined &&
-    requestedVariant !== "v1" &&
-    requestedVariant !== "v1-batched-research"
+    !isDiscoveryEngineVariant(requestedVariant)
   ) {
     res.status(400).json({ error: "Unknown Discovery engine variant" });
     return;

@@ -1,6 +1,22 @@
 import { customFetch } from "./custom-fetch";
 
-export type DiscoveryEngineVariant = "v1" | "v1-batched-research";
+export const DISCOVERY_ENGINE_VARIANTS = [
+  "v1",
+  "v1-batched-research",
+  "v1-luna-research",
+] as const;
+export type DiscoveryEngineVariant = (typeof DISCOVERY_ENGINE_VARIANTS)[number];
+export const DISCOVERY_ENGINE_OPTIONS: ReadonlyArray<{
+  value: DiscoveryEngineVariant;
+  label: string;
+}> = [
+  { value: "v1", label: "V1 baseline" },
+  { value: "v1-batched-research", label: "V1 batched research" },
+  {
+    value: "v1-luna-research",
+    label: "V1 Luna candidate research (C1)",
+  },
+];
 
 export interface DiscoveryRegion {
   id: string;
@@ -212,6 +228,7 @@ export interface DiscoveryRunResult {
     stage1: DiscoveryStageMetrics;
     stage2: {
       model: string;
+      candidate_research_model: string;
       reasoning_effort: string;
       questions_sent: number;
       latency_ms: number;

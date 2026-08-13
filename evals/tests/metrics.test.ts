@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeChatUsage, imageDimensions } from "../../artifacts/api-server/src/lib/analysisMetrics";
+import {
+  normalizeChatUsage,
+  imageDimensions,
+} from "../../artifacts/api-server/src/lib/analysisMetrics";
 import { estimateModelCost } from "../../artifacts/api-server/src/lib/modelPricing";
 
 test("normalizes Chat Completions usage details without inventing values", () => {
@@ -25,7 +28,12 @@ test("normalizes Chat Completions usage details without inventing values", () =>
 
 test("unknown model pricing is explicit and non-fatal", () => {
   assert.deepEqual(
-    estimateModelCost({ model: "unknown", input_tokens: 10, cached_input_tokens: 0, output_tokens: 5 }),
+    estimateModelCost({
+      model: "unknown",
+      input_tokens: 10,
+      cached_input_tokens: 0,
+      output_tokens: 5,
+    }),
     { usd: null, reason: "No pricing configured for unknown" },
   );
 });
@@ -43,12 +51,34 @@ test("prices uncached and cached Sol tokens at the configured rates", () => {
 
 test("uses the supplied Terra and Luna rates", () => {
   assert.equal(
-    estimateModelCost({ model: "gpt-5.6-terra", input_tokens: 1_000_000, cached_input_tokens: 0, output_tokens: 1_000_000 }).usd,
+    estimateModelCost({
+      model: "gpt-5.6-terra",
+      input_tokens: 1_000_000,
+      cached_input_tokens: 0,
+      output_tokens: 1_000_000,
+    }).usd,
     17.5,
   );
   assert.equal(
-    estimateModelCost({ model: "gpt-5.6-luna", input_tokens: 1_000_000, cached_input_tokens: 0, output_tokens: 1_000_000 }).usd,
-    7,
+    estimateModelCost({
+      model: "gpt-5.6-luna",
+      input_tokens: 1_000_000,
+      cached_input_tokens: 0,
+      output_tokens: 1_000_000,
+    }).usd,
+    1.4,
+  );
+});
+
+test("Luna static same-token counterfactual uses current documented rates", () => {
+  const tokens = {
+    input_tokens: 1_000,
+    cached_input_tokens: 200,
+    output_tokens: 500,
+  };
+  assert.equal(
+    estimateModelCost({ model: "gpt-5.6-luna", ...tokens }).usd,
+    0.000764,
   );
 });
 
@@ -57,5 +87,8 @@ test("reads PNG dimensions from the image header", () => {
   header.write("\u0089PNG", 0, "latin1");
   header.writeUInt32BE(640, 16);
   header.writeUInt32BE(480, 20);
-  assert.deepEqual(imageDimensions(`data:image/png;base64,${header.toString("base64")}`), { width: 640, height: 480 });
+  assert.deepEqual(
+    imageDimensions(`data:image/png;base64,${header.toString("base64")}`),
+    { width: 640, height: 480 },
+  );
 });

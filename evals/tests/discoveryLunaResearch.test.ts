@@ -217,20 +217,23 @@ function fakeClient(
           return responsesOutput(
             model,
             JSON.stringify({
-              status: "unverified",
+              status: "verified",
               hypothesis_id: "ih1",
-              canonical_identity: null,
-              identity_type: null,
+              canonical_identity: "A possible subject",
+              identity_type: "other",
               location: null,
-              verification_basis: "The exact identity was not established.",
-              confidence: 0.2,
+              verification_basis:
+                "An authoritative source explicitly establishes the exact subject.",
+              confidence: 0.9,
               match_evidence: [
                 {
-                  basis: "generic_visual_similarity",
-                  detail: "The visible evidence is not unique.",
+                  basis: "source_explicit_identification",
+                  detail:
+                    "The source explicitly identifies the supplied configuration.",
                 },
               ],
             }),
+            { title: "Identity", url: "https://example.com/identity" },
           );
         }
         if (options.failFirstCandidate) {
@@ -394,6 +397,17 @@ test("C1 preserves baseline candidate requests and source integrity", async () =
     );
   }
   assert.equal(luna.metrics.stage2.candidate_research_api_calls, 3);
+  assert.equal(luna.metrics.stage2.identity_dependent_research_candidates, 1);
+  assert.deepEqual(luna.metrics.stage2.identity_blocked_candidate_ids, []);
+  assert.equal(
+    luna.metrics.stage2.candidate_research_calls_avoided_by_identity_gate,
+    0,
+  );
+  assert.equal(
+    luna.metrics.stage2.identity_independent_candidate_research_api_calls,
+    2,
+  );
+  assert.equal(luna.metrics.stage2.candidate_calls_using_verified_identity, 1);
   assert.equal(luna.metrics.research_gate_passed, 3);
   assert.equal(baseline.metrics.research_gate_passed, 3);
   assert.equal(luna.metrics.stage1_candidates, 4);
@@ -521,7 +535,7 @@ test("production Stage 1 selects discriminative clues before calibrated identity
 test("C1 has isolated cache identity and baseline/batched identities are unchanged", () => {
   const image = "data:image/png;base64,YWJj";
   const baseline = computeDiscoveryCacheKey(image).cacheKey;
-  const preDiscriminativeEvidenceKey = `${DISCOVERY_ENGINE_VERSION}:stage1-joint-identity-evidence-v3:${computeDiscoveryCacheKey(image).imageHash}`;
+  const preIdentityResolutionKey = `${DISCOVERY_ENGINE_VERSION}:stage1-discriminative-identity-evidence-v4:${computeDiscoveryCacheKey(image).imageHash}`;
   const batched = computeDiscoveryCacheKey(
     image,
     DISCOVERY_BATCHED_RESEARCH_ENGINE_VERSION,
@@ -539,9 +553,9 @@ test("C1 has isolated cache identity and baseline/batched identities are unchang
   assert.match(baseline, new RegExp(`:${DISCOVERY_CACHE_CONTRACT_REVISION}:`));
   assert.equal(
     DISCOVERY_CACHE_CONTRACT_REVISION,
-    "stage1-discriminative-identity-evidence-v4",
+    "identity-resolution-gate-v5",
   );
-  assert.notEqual(baseline, preDiscriminativeEvidenceKey);
+  assert.notEqual(baseline, preIdentityResolutionKey);
   assert.notEqual(
     baseline,
     `${DISCOVERY_ENGINE_VERSION}:${computeDiscoveryCacheKey(image).imageHash}`,

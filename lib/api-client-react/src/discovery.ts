@@ -76,7 +76,7 @@ export interface DiscoveryResearchResult {
 
 export interface DiscoveryIdentityVerification {
   status: "verified" | "unverified" | "conflicted";
-  hypothesis_id: string;
+  hypothesis_id: string | null;
   canonical_identity: string | null;
   identity_type: DiscoveryIdentityHypothesis["identity_type"] | null;
   location: string | null;
@@ -260,6 +260,10 @@ export interface DiscoveryRunResult {
       total_known_cost_usd?: number | null;
       cost_usd: number | null;
       identity_verification: DiscoveryIdentityVerificationMetrics;
+      identity_dependent_research_candidates?: number;
+      identity_blocked_candidate_ids?: string[];
+      candidate_research_calls_avoided_by_identity_gate?: number;
+      identity_independent_candidate_research_api_calls?: number;
       candidate_calls_using_verified_identity: number;
       candidate_research_api_calls: number;
       answered_candidates: number;
@@ -356,6 +360,10 @@ export interface DiscoveryFailureDiagnostic {
       | null;
     research: {
       attempted_calls: number;
+      identity_dependent_candidates?: number;
+      identity_blocked_candidate_ids?: string[];
+      candidate_calls_avoided_by_identity_gate?: number;
+      identity_independent_api_calls?: number;
       completed_calls: Array<
         DiscoverySafeStageMetrics & {
           candidate_id: string;

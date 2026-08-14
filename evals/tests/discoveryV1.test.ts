@@ -9,6 +9,7 @@ import {
   type DiscoveryStage1,
 } from "../../artifacts/api-server/src/lib/discoveryContracts";
 import {
+  buildDiscoveryIdentityEvidencePacket,
   createStage3Evidence,
   runDiscoveryPipeline,
   runSelectiveResearch,
@@ -105,10 +106,13 @@ const verifiedDraft = {
   ],
 };
 
-function unresolvedDraft(status: "unverified" | "conflicted") {
+function unresolvedDraft(
+  status: "unverified" | "conflicted",
+  hypothesisId: string | null = "ih1",
+) {
   return {
     status,
-    hypothesis_id: "ih1",
+    hypothesis_id: hypothesisId,
     canonical_identity: null,
     identity_type: null,
     location: null,
@@ -241,8 +245,58 @@ test("a research candidate can declare identity context as materially needed", (
   assert.equal(parsed.candidates[0]!.identity_context_needed, true);
 });
 
-test("identity verification does not run when no gated candidate needs it", async () => {
+test("identity evidence packet is compact, complete, text-only, and lead-agnostic", () => {
   const stage1 = structuredClone(identityStage1);
+  stage1.image_summary = "An engineered landscape beside several waterways.";
+  stage1.identity_hypotheses[0]!.proposed_identity =
+    "An engineered agricultural district";
+  stage1.identity_hypotheses[0]!.visible_evidence = [
+    "Rectilinear parcels meet a distinctive water boundary.",
+  ];
+  stage1.candidates[1]!.identity_context_needed = false;
+
+  const packet = buildDiscoveryIdentityEvidencePacket(stage1);
+  assert.equal(packet.image_summary, stage1.image_summary);
+  assert.deepEqual(
+    packet.identity_dependent_candidates.map(
+      (candidate) => candidate.candidate_id,
+    ),
+    ["c1"],
+  );
+  assert.equal(packet.tentative_leads_not_verified_facts.length, 1);
+  assert.equal(
+    packet.tentative_leads_not_verified_facts[0]!.proposed_identity,
+    "An engineered agricultural district",
+  );
+  assert.deepEqual(
+    packet.identity_dependent_candidates[0]!.referenced_regions,
+    [
+      {
+        id: "r2",
+        description: "The isolated circular structure by the waterway",
+        scope: "local",
+      },
+    ],
+  );
+  assert.deepEqual(
+    packet.relevant_regions.map((region) => region.id),
+    ["r2", "r1"],
+  );
+  const serialized = JSON.stringify(packet);
+  assert.doesNotMatch(
+    serialized,
+    /data:image|image_url|research_results|Stage 3/i,
+  );
+  assert.doesNotMatch(
+    serialized,
+    /Noordoostpolder|Netherlands|Dutch|Flevoland|IJsselmeer|IJsseloog|HDFC Bank/i,
+  );
+  assert.doesNotMatch(serialized, /"x"|"y"|"width"|"height"/);
+});
+
+test("identity resolution is skipped only when no hypothesis or identity-dependent candidate exists", async () => {
+  const stage1 = structuredClone(identityStage1);
+  stage1.identity_hypotheses = [];
   stage1.candidates.forEach(
     (candidate) => (candidate.identity_context_needed = false),
   );
@@ -255,6 +309,33 @@ test("identity verification does not run when no gated candidate needs it", asyn
   assert.equal(requests.filter((request) => request.text).length, 0);
 });
 
+test("identity resolution runs from a tentative lead even when no candidate needs identity", async () => {
+  const stage1 = structuredClone(identityStage1);
+  stage1.candidates.forEach(
+    (candidate) => (candidate.identity_context_needed = false),
+  );
+  const requests: CapturedRequest[] = [];
+  const result = await runSelectiveResearch(
+    fakeResearchClient(requests, unresolvedDraft("unverified")),
+    stage1,
+  );
+  assert.equal(result.identityVerification.metrics.ran, true);
+  assert.equal(requests.filter((request) => request.text).length, 1);
+});
+
+test("identity resolution runs without a Stage 1 hypothesis when identity context is needed", async () => {
+  const stage1 = structuredClone(identityStage1);
+  stage1.identity_hypotheses = [];
+  const requests: CapturedRequest[] = [];
+  const result = await runSelectiveResearch(
+    fakeResearchClient(requests, unresolvedDraft("unverified", null)),
+    stage1,
+  );
+  assert.equal(result.identityVerification.metrics.ran, true);
+  assert.equal(result.results.length, 2);
+  assert.equal(result.calls.length, 0);
+});
+
 test("identity verification runs at most once per Discovery run", async () => {
   const requests: CapturedRequest[] = [];
   const result = await runSelectiveResearch(
@@ -265,7 +346,7 @@ test("identity verification runs at most once per Discovery run", async () => {
   assert.equal(result.calls.length, 2);
 });
 
-test("identity generation contract states the status-dependent null invariant", async () => {
+test("identity resolution contract permits lead refinement while preserving fail-closed nulls", async () => {
   const requests: CapturedRequest[] = [];
   await runSelectiveResearch(
     fakeResearchClient(requests, unresolvedDraft("unverified")),
@@ -275,7 +356,11 @@ test("identity generation contract states the status-dependent null invariant", 
   assert.ok(identityRequest);
   assert.match(
     String(identityRequest.instructions),
-    /When status is verified, canonical_identity and identity_type must be populated\./,
+    /tentative leads, not constraints or verified facts/,
+  );
+  assert.match(
+    String(identityRequest.instructions),
+    /refine, reject, or replace them/,
   );
   assert.match(
     String(identityRequest.instructions),
@@ -285,9 +370,14 @@ test("identity generation contract states the status-dependent null invariant", 
     String(identityRequest.instructions),
     /tentative, rejected, or conflicting possibilities only in verification_basis and match_evidence/,
   );
+  assert.match(String(identityRequest.instructions), /otherwise return null/);
+  assert.doesNotMatch(
+    String(identityRequest.instructions),
+    /Noordoostpolder|Netherlands|Dutch|Flevoland|IJsselmeer|IJsseloog|HDFC Bank/i,
+  );
 });
 
-test("identity verification receives only gated identity-dependent questions", async () => {
+test("identity resolution receives all and only identity-dependent candidate evidence", async () => {
   const stage1 = structuredClone(identityStage1);
   stage1.candidates[1]!.identity_context_needed = false;
   const requests: CapturedRequest[] = [];
@@ -300,6 +390,15 @@ test("identity verification receives only gated identity-dependent questions", a
   );
   assert.match(verificationInput, /"question_id":"q1"/);
   assert.doesNotMatch(verificationInput, /"question_id":"q2"/);
+  assert.match(
+    verificationInput,
+    /"description":"The isolated circular structure by the waterway"/,
+  );
+  assert.match(verificationInput, /tentative_leads_not_verified_facts/);
+  assert.doesNotMatch(
+    verificationInput,
+    /data:image|Stage 3|research_results/i,
+  );
   assert.equal(result.calls[0]!.used_verified_identity_context, true);
   assert.equal(result.calls[1]!.used_verified_identity_context, false);
 });
@@ -318,14 +417,13 @@ test("unverified identity is never supplied downstream as verified fact", async 
     result.calls.every((call) => !call.used_verified_identity_context),
     true,
   );
+  assert.deepEqual(candidateInputs, []);
   assert.equal(
-    candidateInputs.every(
-      (input) =>
-        !input.includes("VERIFIED IDENTITY CONTEXT") &&
-        !input.includes("Noordoostpolder, Netherlands"),
-    ),
+    result.results.every((item) => item.status === "insufficient"),
     true,
   );
+  assert.deepEqual(result.identityBlockedCandidateIds, ["c1", "c2"]);
+  assert.equal(result.candidateResearchCallsAvoidedByIdentityGate, 2);
 });
 
 test("conflicting identity result fails safely without identity reuse", async () => {
@@ -339,10 +437,8 @@ test("conflicting identity result fails safely without identity reuse", async ()
     result.calls.every((call) => !call.used_verified_identity_context),
     true,
   );
-  assert.match(
-    String(requests[1]!.input),
-    /IDENTITY VERIFICATION STATUS: conflicted/,
-  );
+  assert.equal(requests.length, 1);
+  assert.deepEqual(result.identityBlockedCandidateIds, ["c1", "c2"]);
 });
 
 test("one verified identity is reused across multiple relevant candidate calls", async () => {
@@ -363,6 +459,58 @@ test("one verified identity is reused across multiple relevant candidate calls",
     candidateInputs.every((input) => input.includes("Noordoostpolder")),
     true,
   );
+});
+
+test("identity resolution may verify an exact subject beyond every Stage 1 lead", () => {
+  const resolved = validateIdentityVerification(
+    identityStage1,
+    {
+      ...verifiedDraft,
+      hypothesis_id: null,
+      canonical_identity: "An exact externally established subject",
+      location: "An externally established location",
+      verification_basis:
+        "Independent sources establish the exact subject from the combined configuration.",
+    },
+    [{ title: "Identity", url: "https://example.com/identity" }],
+  );
+  assert.equal(resolved.status, "verified");
+  assert.equal(resolved.hypothesis_id, null);
+  const stage3Evidence = createStage3Evidence(identityStage1, [], resolved);
+  assert.equal(stage3Evidence.identity_verification?.status, "verified");
+  if (stage3Evidence.identity_verification?.status !== "verified") {
+    assert.fail("Verified identity evidence was not preserved");
+  }
+  assert.deepEqual(
+    stage3Evidence.identity_verification.applicable_candidate_ids,
+    ["c1", "c2"],
+  );
+});
+
+test("unresolved identity blocks only identity-dependent research", async () => {
+  const stage1 = structuredClone(identityStage1);
+  stage1.candidates[1]!.identity_context_needed = false;
+  const requests: CapturedRequest[] = [];
+  const result = await runSelectiveResearch(
+    fakeResearchClient(requests, unresolvedDraft("unverified")),
+    stage1,
+  );
+  assert.deepEqual(result.identityBlockedCandidateIds, ["c1"]);
+  assert.equal(result.candidateResearchCallsAvoidedByIdentityGate, 1);
+  assert.equal(result.identityDependentResearchCandidates, 1);
+  assert.equal(result.identityIndependentCandidateResearchApiCalls, 1);
+  assert.equal(result.candidateResearchApiCalls, 1);
+  assert.deepEqual(
+    result.results.map((item) => [item.candidate_id, item.status]),
+    [
+      ["c1", "insufficient"],
+      ["c2", "answered"],
+    ],
+  );
+  assert.match(result.results[0]!.finding, /research was skipped/);
+  assert.deepEqual(result.results[0]!.sources, []);
+  assert.equal(requests.filter((request) => !request.text).length, 1);
+  assert.match(String(requests[1]!.input), /CANDIDATE ID: c2/);
 });
 
 test("candidate research remains restricted to its original Stage 1 question", async () => {
@@ -476,9 +624,7 @@ test("shared Stage 3 evidence exposes only answered research", () => {
     question: candidate.investigation_question,
     status: index === 0 ? ("answered" as const) : ("insufficient" as const),
     finding:
-      index === 0
-        ? "A validated finding."
-        : "No adequate evidence was found.",
+      index === 0 ? "A validated finding." : "No adequate evidence was found.",
     sources:
       index === 0
         ? [{ title: "Research", url: "https://example.com/research" }]
@@ -493,16 +639,10 @@ test("shared Stage 3 evidence exposes only answered research", () => {
 });
 
 test("shared Stage 3 evidence gives only verified identity explicit applicability", () => {
-  const verified = validateIdentityVerification(
-    identityStage1,
-    verifiedDraft,
-    [{ title: "Identity", url: "https://example.com/identity" }],
-  );
-  const verifiedEvidence = createStage3Evidence(
-    identityStage1,
-    [],
-    verified,
-  );
+  const verified = validateIdentityVerification(identityStage1, verifiedDraft, [
+    { title: "Identity", url: "https://example.com/identity" },
+  ]);
+  const verifiedEvidence = createStage3Evidence(identityStage1, [], verified);
   assert.deepEqual(
     verifiedEvidence.identity_verification?.status === "verified"
       ? verifiedEvidence.identity_verification.applicable_candidate_ids
@@ -681,6 +821,26 @@ test("the full pipeline withholds unverified hypotheses from Stage 3", async () 
   assert.equal(result.version, "discovery-engine-v1");
   assert.equal(result.inspection.identity_verification?.status, "unverified");
   assert.equal(result.inspection.stage1.identity_hypotheses.length, 1);
+  assert.equal(result.metrics.stage2.candidate_research_api_calls, 0);
+  assert.equal(result.metrics.stage2.identity_dependent_research_candidates, 2);
+  assert.deepEqual(result.metrics.stage2.identity_blocked_candidate_ids, [
+    "c1",
+    "c2",
+  ]);
+  assert.equal(
+    result.metrics.stage2.candidate_research_calls_avoided_by_identity_gate,
+    2,
+  );
+  assert.equal(
+    result.metrics.stage2.identity_independent_candidate_research_api_calls,
+    0,
+  );
+  assert.equal(
+    result.metrics.stage2.candidate_calls_using_verified_identity,
+    0,
+  );
+  assert.equal(result.metrics.stage2.calls.length, 0);
+  assert.equal(result.inspection.research_results.length, 2);
   assert.doesNotMatch(stage3Request, /Noordoostpolder/);
   assert.match(stage3Request, /IDENTITY VERIFICATION RESULT/);
   assert.match(stage3Request, /unverified/);

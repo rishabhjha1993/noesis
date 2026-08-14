@@ -6,8 +6,7 @@ import {
 
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 20;
-export const DISCOVERY_CACHE_CONTRACT_REVISION =
-  "stage1-discriminative-identity-evidence-v4";
+export const DISCOVERY_CACHE_CONTRACT_REVISION = "identity-resolution-gate-v5";
 
 interface CacheEntry {
   createdAt: number;

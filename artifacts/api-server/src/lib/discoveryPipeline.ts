@@ -124,11 +124,13 @@ When forming an identity hypothesis, prioritize discriminative clues over redund
 
 Candidates may require no research. Reject broad topic questions, generic history, and trivia that could be generated from the subject alone. Do not expose chain-of-thought; return only concise structured grounding artifacts.`;
 
-const IDENTITY_VERIFICATION_INSTRUCTIONS = `You are the conditional identity-verification substep inside Stage 2 of Noesis Discovery Engine V1.
+const IDENTITY_RESOLUTION_INSTRUCTIONS = `You are the conditional identity-resolution substep inside Stage 2 of Noesis Discovery Engine V1.
 
-You receive text-only visual identity hypotheses from Stage 1, their concise visible evidence, observed labels or numbers, and relevant region descriptions. You do not receive the image. Use web search to verify, reject, or identify conflict in the proposed identity. Identity is useful only as context for already-approved image-triggered questions.
+You receive a compact packet of text-only visual evidence selected by Stage 1. You do not receive the image. Determine the exact place, building, object, figure, map, artwork, diagram, instrument, or other subject represented by that evidence when trustworthy external evidence can establish it. Identity is useful only as context for already-approved image-triggered questions.
 
-Return verified only when external evidence establishes the exact place, building, object, figure, map, artwork, diagram, or other identity. When status is verified, canonical_identity and identity_type must be populated. When status is unverified or conflicted, canonical_identity, identity_type, and location must all be null; describe tentative, rejected, or conflicting possibilities only in verification_basis and match_evidence. A shared word, typography style, visual motif, generic structure, or partial characteristic is not enough. Evidence about a general convention is not evidence that a source depicts the exact same object or figure. In particular, another plate containing similar wording does not establish that it is the uploaded plate. Prefer unverified or conflicted over a convenient nearest match. Cite supporting claims only through web-search citations; never invent source URLs. Return only the strict JSON result.`;
+Stage-1 identity hypotheses are tentative leads, not constraints or verified facts. You may refine, reject, or replace them when the combined evidence points elsewhere. Use the combination of discriminative labels, numbers, anomalies, topology, spatial relationships, geometry, configuration, and other supplied observations. Do not rely on generic category similarity and do not perform generic topic research.
+
+Return verified only when trustworthy external evidence establishes the exact identity strongly enough to distinguish it from plausible alternatives. When status is verified, canonical_identity and identity_type must be populated. When status is unverified or conflicted, canonical_identity, identity_type, and location must all be null; describe tentative, rejected, or conflicting possibilities only in verification_basis and match_evidence. Use hypothesis_id only when the resolution remains associated with a supplied tentative lead; otherwise return null. A shared word, typography style, visual motif, broad category, generic structure, or common characteristic is insufficient. Evidence about a general convention is not evidence that a source depicts the exact same subject. Prefer unverified or conflicted over a convenient nearest match. Cite supporting claims only through web-search citations; never invent source URLs. Return only the strict JSON result.`;
 
 const RESEARCH_INSTRUCTIONS = `You are Stage 2 of Noesis Discovery Engine V1: selectively RESEARCH.
 
@@ -262,6 +264,10 @@ export interface DiscoveryPipelineMetrics {
     total_known_cost_usd: number | null;
     cost_usd: number | null;
     identity_verification: DiscoveryIdentityVerificationMetrics;
+    identity_dependent_research_candidates: number;
+    identity_blocked_candidate_ids: string[];
+    candidate_research_calls_avoided_by_identity_gate: number;
+    identity_independent_candidate_research_api_calls: number;
     candidate_calls_using_verified_identity: number;
     candidate_research_api_calls: number;
     answered_candidates: number;
@@ -373,6 +379,10 @@ export interface DiscoveryFailureDiagnostic {
       | null;
     research: {
       attempted_calls: number;
+      identity_dependent_candidates: number;
+      identity_blocked_candidate_ids: string[];
+      candidate_calls_avoided_by_identity_gate: number;
+      identity_independent_api_calls: number;
       completed_calls: DiscoveryCompletedResearchCallMetrics[];
       known_usage: DiscoverySafeUsageMetrics | null;
       known_web_search_calls: number;
@@ -410,6 +420,10 @@ interface DiscoveryExecutionState {
   knownStage2Metrics: DiscoveryStageMetrics[];
   researchCalls: DiscoveryResearchCallMetrics[];
   attemptedResearchCalls: number;
+  identityDependentResearchCandidates: number;
+  identityBlockedCandidateIds: string[];
+  candidateResearchCallsAvoidedByIdentityGate: number;
+  identityIndependentCandidateResearchApiCalls: number;
   researchFailureScope?: DiscoveryBatchFailureScope;
   researchValidationCategory?: DiscoveryBatchValidationCategory;
   safeValidationMessage?: string;
@@ -442,6 +456,10 @@ function createExecutionState(
     knownStage2Metrics: [],
     researchCalls: [],
     attemptedResearchCalls: 0,
+    identityDependentResearchCandidates: 0,
+    identityBlockedCandidateIds: [],
+    candidateResearchCallsAvoidedByIdentityGate: 0,
+    identityIndependentCandidateResearchApiCalls: 0,
     stage3: null,
   };
 }
@@ -754,6 +772,13 @@ function createFailureDiagnostic(
         : null,
       research: {
         attempted_calls: state.attemptedResearchCalls,
+        identity_dependent_candidates:
+          state.identityDependentResearchCandidates,
+        identity_blocked_candidate_ids: state.identityBlockedCandidateIds,
+        candidate_calls_avoided_by_identity_gate:
+          state.candidateResearchCallsAvoidedByIdentityGate,
+        identity_independent_api_calls:
+          state.identityIndependentCandidateResearchApiCalls,
         completed_calls: completedResearchCalls,
         known_usage: knownStage2Usage ? safeUsage(knownStage2Usage) : null,
         known_web_search_calls: state.knownStage2Metrics.reduce(
@@ -892,6 +917,10 @@ export interface DiscoveryResearchExecution {
   calls: DiscoveryResearchCallMetrics[];
   identityVerification: DiscoveryIdentityVerificationExecution;
   gatedCandidates: number;
+  identityDependentResearchCandidates: number;
+  identityBlockedCandidateIds: string[];
+  candidateResearchCallsAvoidedByIdentityGate: number;
+  identityIndependentCandidateResearchApiCalls: number;
   candidateResearchApiCalls: number;
   candidateCallsUsingVerifiedIdentity: number;
   batchMetrics: DiscoveryBatchResearchMetrics | null;
@@ -915,41 +944,73 @@ function identityNotRun(): DiscoveryIdentityVerificationExecution {
   };
 }
 
-async function runIdentityVerification(
+export function buildDiscoveryIdentityEvidencePacket(stage1: DiscoveryStage1) {
+  const regionsById = new Map(
+    stage1.regions.map((region) => [region.id, region]),
+  );
+  const identityDependentCandidates = stage1.candidates.filter(
+    (candidate) => candidate.identity_context_needed,
+  );
+  const relevantRegionIds = new Set([
+    ...identityDependentCandidates.flatMap((candidate) => candidate.region_ids),
+    ...stage1.identity_hypotheses.flatMap(
+      (hypothesis) => hypothesis.region_ids,
+    ),
+  ]);
+  const conciseRegion = (regionId: string) => {
+    const region = regionsById.get(regionId);
+    return region
+      ? {
+          id: region.id,
+          description: region.description,
+          scope: region.scope,
+        }
+      : null;
+  };
+
+  return {
+    image_summary: stage1.image_summary,
+    tentative_leads_not_verified_facts: stage1.identity_hypotheses.map(
+      (hypothesis) => ({
+        id: hypothesis.id,
+        proposed_identity: hypothesis.proposed_identity,
+        identity_type: hypothesis.identity_type,
+        visible_evidence: hypothesis.visible_evidence,
+        observed_labels_or_numbers: hypothesis.observed_labels_or_numbers,
+        confidence: hypothesis.confidence,
+        relevant_question_ids: hypothesis.relevant_question_ids,
+        region_ids: hypothesis.region_ids,
+      }),
+    ),
+    identity_dependent_candidates: identityDependentCandidates.map(
+      (candidate) => ({
+        candidate_id: candidate.id,
+        question_id: candidate.question_id,
+        visual_trigger: candidate.visual_trigger,
+        observation: candidate.observation,
+        investigation_question: candidate.investigation_question,
+        referenced_regions: candidate.region_ids
+          .map(conciseRegion)
+          .filter((region) => region !== null),
+      }),
+    ),
+    relevant_regions: [...relevantRegionIds]
+      .map(conciseRegion)
+      .filter((region) => region !== null),
+  };
+}
+
+async function runIdentityResolution(
   openai: OpenAI,
   stage1: DiscoveryStage1,
-  gatedQuestionIds: Set<string>,
   state: DiscoveryExecutionState,
 ): Promise<DiscoveryIdentityVerificationExecution> {
-  const identityQuestionIds = new Set(
-    stage1.candidates
-      .filter(
-        (candidate) =>
-          gatedQuestionIds.has(candidate.question_id) &&
-          candidate.identity_context_needed,
-      )
-      .map((candidate) => candidate.question_id),
-  );
-  if (identityQuestionIds.size === 0) return identityNotRun();
+  const shouldResolveIdentity =
+    stage1.identity_hypotheses.length > 0 ||
+    stage1.candidates.some((candidate) => candidate.identity_context_needed);
+  if (!shouldResolveIdentity) return identityNotRun();
 
-  const hypotheses = stage1.identity_hypotheses.filter(
-    (hypothesis) =>
-      hypothesis.verification_would_help &&
-      hypothesis.relevant_question_ids.some((questionId) =>
-        identityQuestionIds.has(questionId),
-      ),
-  );
-  if (hypotheses.length === 0) return identityNotRun();
-
-  const relevantCandidates = stage1.candidates.filter(
-    (candidate) =>
-      gatedQuestionIds.has(candidate.question_id) &&
-      candidate.identity_context_needed,
-  );
-
-  const relevantRegionIds = new Set(
-    hypotheses.flatMap((hypothesis) => hypothesis.region_ids),
-  );
+  const evidencePacket = buildDiscoveryIdentityEvidencePacket(stage1);
   state.stageReached = "identity_verification";
   state.currentCandidateId = undefined;
   state.currentQuestionId = undefined;
@@ -965,26 +1026,10 @@ async function runIdentityVerification(
     text: {
       format: DISCOVERY_IDENTITY_VERIFICATION_JSON_SCHEMA,
     },
-    instructions: IDENTITY_VERIFICATION_INSTRUCTIONS,
+    instructions: IDENTITY_RESOLUTION_INSTRUCTIONS,
     input: [
-      "STAGE 1 IDENTITY HYPOTHESES:",
-      JSON.stringify(hypotheses),
-      "",
-      "RELEVANT VISIBLE REGION DESCRIPTIONS:",
-      JSON.stringify(
-        stage1.regions.filter((region) => relevantRegionIds.has(region.id)),
-      ),
-      "",
-      "APPROVED QUESTIONS THAT MAY NEED IDENTITY:",
-      JSON.stringify(
-        relevantCandidates.map((candidate) => ({
-          question_id: candidate.question_id,
-          visual_trigger: candidate.visual_trigger,
-          observation: candidate.observation,
-          investigation_question: candidate.investigation_question,
-          identity_context_needed: candidate.identity_context_needed,
-        })),
-      ),
+      "STAGE 1 IDENTITY EVIDENCE PACKET:",
+      JSON.stringify(evidencePacket),
     ].join("\n"),
   });
   const usage = normalizeResponseUsage(response, Date.now() - started);
@@ -1027,20 +1072,45 @@ async function runSelectiveResearchWithState(
   const gatedCandidates = stage1.candidates.filter(
     (candidate) => evaluateResearchGate(stage1, candidate).allowed,
   );
-  const gatedQuestionIds = new Set(
-    gatedCandidates.map((candidate) => candidate.question_id),
-  );
-  const identityVerification = await runIdentityVerification(
+  const identityVerification = await runIdentityResolution(
     openai,
     stage1,
-    gatedQuestionIds,
     state,
   );
+  const identityApplicableCandidates = new Set(
+    identityApplicableCandidateIds(stage1, identityVerification.result),
+  );
+  const identityDependentResearchCandidates = gatedCandidates.filter(
+    (candidate) => candidate.identity_context_needed,
+  );
+  state.identityDependentResearchCandidates =
+    identityDependentResearchCandidates.length;
+  const identityBlockedCandidateIds = state.identityBlockedCandidateIds;
   state.stageReached = "research";
   for (const candidate of gatedCandidates) {
     state.currentCandidateId = candidate.id;
     state.currentQuestionId = candidate.question_id;
+    if (
+      candidate.identity_context_needed &&
+      !identityApplicableCandidates.has(candidate.id)
+    ) {
+      identityBlockedCandidateIds.push(candidate.id);
+      state.candidateResearchCallsAvoidedByIdentityGate += 1;
+      rawResults.push({
+        candidate_id: candidate.id,
+        question_id: candidate.question_id,
+        question: candidate.investigation_question,
+        status: "insufficient",
+        finding:
+          "Verified identity was required for this question but could not be established; research was skipped to avoid unsupported subject substitution.",
+        sources: [],
+      });
+      continue;
+    }
     state.attemptedResearchCalls += 1;
+    if (!candidate.identity_context_needed) {
+      state.identityIndependentCandidateResearchApiCalls += 1;
+    }
     const completed = await runDiscoveryCandidateResearchCall(
       openai,
       stage1,
@@ -1064,6 +1134,13 @@ async function runSelectiveResearchWithState(
     calls,
     identityVerification,
     gatedCandidates: gatedCandidates.length,
+    identityDependentResearchCandidates:
+      identityDependentResearchCandidates.length,
+    identityBlockedCandidateIds,
+    candidateResearchCallsAvoidedByIdentityGate:
+      identityBlockedCandidateIds.length,
+    identityIndependentCandidateResearchApiCalls:
+      state.identityIndependentCandidateResearchApiCalls,
     candidateResearchApiCalls: calls.length,
     candidateCallsUsingVerifiedIdentity: calls.filter(
       (call) => call.used_verified_identity_context,
@@ -1190,15 +1267,16 @@ async function runBatchedSelectiveResearchWithState(
   const gatedCandidates = stage1.candidates.filter(
     (candidate) => evaluateResearchGate(stage1, candidate).allowed,
   );
-  const gatedQuestionIds = new Set(
-    gatedCandidates.map((candidate) => candidate.question_id),
-  );
-  const identityVerification = await runIdentityVerification(
+  const identityVerification = await runIdentityResolution(
     openai,
     stage1,
-    gatedQuestionIds,
     state,
   );
+  const identityDependentResearchCandidates = gatedCandidates.filter(
+    (candidate) => candidate.identity_context_needed,
+  ).length;
+  state.identityDependentResearchCandidates =
+    identityDependentResearchCandidates;
   const batchContext = buildDiscoveryBatchContext(
     stage1,
     gatedCandidates,
@@ -1213,6 +1291,10 @@ async function runBatchedSelectiveResearchWithState(
       calls: [],
       identityVerification,
       gatedCandidates: 0,
+      identityDependentResearchCandidates: 0,
+      identityBlockedCandidateIds: [],
+      candidateResearchCallsAvoidedByIdentityGate: 0,
+      identityIndependentCandidateResearchApiCalls: 0,
       candidateResearchApiCalls: 0,
       candidateCallsUsingVerifiedIdentity: 0,
       batchMetrics: null,
@@ -1329,6 +1411,10 @@ async function runBatchedSelectiveResearchWithState(
     calls: [],
     identityVerification,
     gatedCandidates: gatedCandidates.length,
+    identityDependentResearchCandidates,
+    identityBlockedCandidateIds: [],
+    candidateResearchCallsAvoidedByIdentityGate: 0,
+    identityIndependentCandidateResearchApiCalls: 0,
     candidateResearchApiCalls: 1,
     candidateCallsUsingVerifiedIdentity:
       batchContext.identity_context_mappings.filter(
@@ -1372,16 +1458,10 @@ export async function runBatchedSelectiveResearch(
 export async function runSelectiveResearch(
   openai: OpenAI,
   stage1: DiscoveryStage1,
-): Promise<{
-  results: DiscoveryResearchResult[];
-  calls: DiscoveryResearchCallMetrics[];
-  identityVerification: DiscoveryIdentityVerificationExecution;
-}> {
+): Promise<DiscoveryResearchExecution> {
   const state = createExecutionState();
   try {
-    const { results, calls, identityVerification } =
-      await runSelectiveResearchWithState(openai, stage1, state);
-    return { results, calls, identityVerification };
+    return await runSelectiveResearchWithState(openai, stage1, state);
   } catch (error) {
     throw new DiscoveryPipelineError(error, state);
   }
@@ -1638,6 +1718,13 @@ async function runDiscoveryPipelineWithState(
         total_known_cost_usd: stage2Cost,
         cost_usd: stage2Cost,
         identity_verification: research.identityVerification.metrics,
+        identity_dependent_research_candidates:
+          research.identityDependentResearchCandidates,
+        identity_blocked_candidate_ids: research.identityBlockedCandidateIds,
+        candidate_research_calls_avoided_by_identity_gate:
+          research.candidateResearchCallsAvoidedByIdentityGate,
+        identity_independent_candidate_research_api_calls:
+          research.identityIndependentCandidateResearchApiCalls,
         candidate_calls_using_verified_identity:
           research.candidateCallsUsingVerifiedIdentity,
         candidate_research_api_calls: research.candidateResearchApiCalls,

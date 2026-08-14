@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   DiscoverySourceSchema,
+  identityApplicableCandidateIds,
   validateResearchResults,
   type DiscoveryCandidate,
   type DiscoveryIdentityVerification,
@@ -181,26 +182,21 @@ export function buildDiscoveryBatchContext(
   candidates: DiscoveryCandidate[],
   identityVerification: DiscoveryIdentityVerification | null,
 ): DiscoveryBatchContext {
-  const verifiedHypothesis =
-    identityVerification?.status === "verified"
-      ? stage1.identity_hypotheses.find(
-          (hypothesis) => hypothesis.id === identityVerification.hypothesis_id,
-        )
-      : undefined;
+  const identityApplicableCandidates = new Set(
+    identityApplicableCandidateIds(stage1, identityVerification),
+  );
   const regions = new Map(stage1.regions.map((region) => [region.id, region]));
 
   const identity_context_mappings = candidates.map((candidate) => {
     const usedVerifiedIdentityContext = Boolean(
-      candidate.identity_context_needed &&
-      verifiedHypothesis?.verification_would_help &&
-      verifiedHypothesis.relevant_question_ids.includes(candidate.question_id),
+      identityApplicableCandidates.has(candidate.id),
     );
     return {
       candidate_id: candidate.id,
       question_id: candidate.question_id,
       used_verified_identity_context: usedVerifiedIdentityContext,
       identity_hypothesis_id: usedVerifiedIdentityContext
-        ? (verifiedHypothesis?.id ?? null)
+        ? (identityVerification?.hypothesis_id ?? null)
         : null,
     };
   });

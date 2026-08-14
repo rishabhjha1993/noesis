@@ -219,7 +219,7 @@ export const DiscoveryIdentityMatchEvidenceSchema = z
 export const DiscoveryIdentityVerificationDraftSchema = z
   .object({
     status: z.enum(["verified", "unverified", "conflicted"]),
-    hypothesis_id: NonEmptyText,
+    hypothesis_id: NonEmptyText.nullable(),
     canonical_identity: NonEmptyText.nullable(),
     identity_type: z
       .enum([
@@ -557,6 +557,7 @@ export function validateIdentityVerification(
 ): DiscoveryIdentityVerification {
   const draft = DiscoveryIdentityVerificationDraftSchema.parse(input);
   if (
+    draft.hypothesis_id !== null &&
     !stage1.identity_hypotheses.some(
       (hypothesis) => hypothesis.id === draft.hypothesis_id,
     )
@@ -576,17 +577,8 @@ export function identityApplicableCandidateIds(
   identityVerification: DiscoveryIdentityVerification | null,
 ): string[] {
   if (identityVerification?.status !== "verified") return [];
-  const hypothesis = stage1.identity_hypotheses.find(
-    (item) => item.id === identityVerification.hypothesis_id,
-  );
-  if (!hypothesis?.verification_would_help) return [];
-  const relevantQuestionIds = new Set(hypothesis.relevant_question_ids);
   return stage1.candidates
-    .filter(
-      (candidate) =>
-        candidate.identity_context_needed &&
-        relevantQuestionIds.has(candidate.question_id),
-    )
+    .filter((candidate) => candidate.identity_context_needed)
     .map((candidate) => candidate.id);
 }
 
@@ -833,7 +825,7 @@ export const DISCOVERY_IDENTITY_VERIFICATION_JSON_SCHEMA = {
         type: "string",
         enum: ["verified", "unverified", "conflicted"],
       },
-      hypothesis_id: stringSchema,
+      hypothesis_id: { type: ["string", "null"], minLength: 1 },
       canonical_identity: { type: ["string", "null"], minLength: 1 },
       identity_type: {
         type: ["string", "null"],

@@ -216,6 +216,15 @@ test("Stage 2 makes zero calls when no candidate passes the research gate", asyn
         cost_reason: null,
       },
     },
+    gatedCandidates: 0,
+    identityDependentResearchCandidates: 0,
+    identityBlockedCandidateIds: [],
+    candidateResearchCallsAvoidedByIdentityGate: 0,
+    identityIndependentCandidateResearchApiCalls: 0,
+    candidateResearchApiCalls: 0,
+    candidateCallsUsingVerifiedIdentity: 0,
+    batchMetrics: null,
+    batchInspection: null,
   });
 });
 

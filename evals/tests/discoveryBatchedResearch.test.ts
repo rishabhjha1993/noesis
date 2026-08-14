@@ -404,7 +404,7 @@ test("batch results preserve exact candidate and question ids", async () => {
   );
 });
 
-test("verified identity context is included only for its mapped candidate", () => {
+test("verified resolved identity context is included for every identity-dependent candidate", () => {
   const context = buildDiscoveryBatchContext(
     stage1Fixture,
     gatedCandidates,
@@ -414,12 +414,15 @@ test("verified identity context is included only for its mapped candidate", () =
     context.candidates[0]!.verified_identity?.canonical_identity,
     "Noordoostpolder",
   );
-  assert.equal(context.candidates[1]!.verified_identity, null);
+  assert.equal(
+    context.candidates[1]!.verified_identity?.canonical_identity,
+    "Noordoostpolder",
+  );
   assert.deepEqual(
     context.identity_context_mappings.map(
       (mapping) => mapping.used_verified_identity_context,
     ),
-    [true, false],
+    [true, true],
   );
 });
 
@@ -440,7 +443,7 @@ test("verified identity runs once and remains separate from the one batch call",
     result.batchInspection?.identity_context_mappings.map(
       (mapping) => mapping.used_verified_identity_context,
     ),
-    [true, false],
+    [true, true],
   );
 });
 
@@ -952,22 +955,18 @@ test("Stage 3 receives only answered research and explicit identity applicabilit
     evidence.identity_verification?.status === "verified"
       ? evidence.identity_verification.applicable_candidate_ids
       : [],
-    ["c1"],
+    ["c1", "c2"],
   );
 });
 
 test("identity evidence cannot satisfy a candidate outside its explicit applicability", () => {
+  const stage1 = structuredClone(stage1Fixture);
+  stage1.candidates[1]!.identity_context_needed = false;
   const invalidDraft = {
     discoveries: [finalDiscovery("c2", "researched", verifiedIdentity.sources)],
   };
   assert.throws(
-    () =>
-      validateDiscoveryOutput(
-        stage1Fixture,
-        [],
-        invalidDraft,
-        verifiedIdentity,
-      ),
+    () => validateDiscoveryOutput(stage1, [], invalidDraft, verifiedIdentity),
     /no applicable validated research sources/,
   );
 });

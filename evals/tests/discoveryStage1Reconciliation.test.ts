@@ -217,8 +217,33 @@ function pipelineClient(stage1: unknown, events: string[]) {
     },
     responses: {
       create: async () => {
-        events.push("stage2");
-        throw new Error("Stage 2 must not run for this fixture");
+        events.push("identity");
+        return {
+          model: "gpt-5.6-terra",
+          output_text: JSON.stringify({
+            status: "unverified",
+            hypothesis_id: "ih_investing_chart",
+            canonical_identity: null,
+            identity_type: null,
+            location: null,
+            verification_basis: "The exact subject was not established.",
+            confidence: 0.2,
+            match_evidence: [
+              {
+                basis: "generic_visual_similarity",
+                detail: "The visible chart structure is not unique.",
+              },
+            ],
+          }),
+          output: [],
+          usage: {
+            input_tokens: 100,
+            input_tokens_details: { cached_tokens: 0 },
+            output_tokens: 20,
+            output_tokens_details: { reasoning_tokens: 5 },
+            total_tokens: 120,
+          },
+        };
       },
     },
   } as unknown as Parameters<typeof runDiscoveryPipeline>[0];
@@ -230,7 +255,7 @@ test("production continues after one-call dangling-reference repair and exposes 
     pipelineClient(regressionDraft(), events),
     "data:image/png;base64,YWJj",
   );
-  assert.deepEqual(events, ["stage1", "stage3"]);
+  assert.deepEqual(events, ["stage1", "identity", "stage3"]);
   assert.equal(result.metrics.success, true);
   assert.equal(result.inspection.stage1.candidates.length, 1);
   assert.equal(
@@ -288,7 +313,34 @@ test("Stage 1 production model, reasoning, and joint-evidence safeguards remain 
         },
       },
     },
-    responses: { create: async () => assert.fail("Unexpected Stage 2 call") },
+    responses: {
+      create: async () => ({
+        model: "gpt-5.6-terra",
+        output_text: JSON.stringify({
+          status: "unverified",
+          hypothesis_id: "ih_investing_chart",
+          canonical_identity: null,
+          identity_type: null,
+          location: null,
+          verification_basis: "The exact subject was not established.",
+          confidence: 0.2,
+          match_evidence: [
+            {
+              basis: "generic_visual_similarity",
+              detail: "The visible chart structure is not unique.",
+            },
+          ],
+        }),
+        output: [],
+        usage: {
+          input_tokens: 100,
+          input_tokens_details: { cached_tokens: 0 },
+          output_tokens: 20,
+          output_tokens_details: { reasoning_tokens: 5 },
+          total_tokens: 120,
+        },
+      }),
+    },
   } as unknown as Parameters<typeof runDiscoveryPipeline>[0];
   await runDiscoveryPipeline(client, "data:image/png;base64,YWJj");
   assert.equal(requests[0]!.model, DISCOVERY_STAGE1_MODEL);

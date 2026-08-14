@@ -1,9 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  DISCOVERY_RESEARCH_IMAGE_DETAIL,
+  addOriginalImageToCandidateResearchRequest,
+  assertOriginalImageIsOnlyRequestDifference,
   candidateResearchRequestsForPlan,
+  createDiscoveryResearchImageAccessExperimentPlan,
   createDiscoveryResearchReplayDryRun,
   createDiscoveryResearchReplayPlan,
+  executeDiscoveryResearchImageAccessExperiment,
   executeDiscoveryResearchReplay,
   parseRetainedDiscoveryReplayInput,
 } from "../discoveryResearchReplay";
@@ -12,6 +17,7 @@ import {
   DISCOVERY_STAGE2_MODEL,
   DISCOVERY_LUNA_RESEARCH_MODEL,
 } from "../../artifacts/api-server/src/lib/discoveryPipeline";
+import { FROZEN_V1_ENGINE_VERSION } from "../../artifacts/api-server/src/lib/discoveryFrozenV1";
 
 const stage1 = {
   image_summary: "A retained visual with two research candidates.",
@@ -217,6 +223,13 @@ test("replay parses and validates the retained API envelope", () => {
   );
 });
 
+test("image-access replay accepts the frozen V1 retained envelope", () => {
+  const envelope = retainedEnvelope();
+  envelope.result.version = FROZEN_V1_ENGINE_VERSION;
+  const input = parseRetainedDiscoveryReplayInput(envelope, "frozen-run");
+  assert.equal(input.sourceEngineVersion, FROZEN_V1_ENGINE_VERSION);
+});
+
 test("replay rejects failed, incomplete, or unresolved retained input", () => {
   assert.throws(
     () =>
@@ -285,8 +298,14 @@ test("Terra and Luna replay requests differ only by candidate model", () => {
   );
   assert.equal(terra.length, 2);
   assert.deepEqual(
-    terra.map((item) => ({ ...item, request: { ...item.request, model: null } })),
-    luna.map((item) => ({ ...item, request: { ...item.request, model: null } })),
+    terra.map((item) => ({
+      ...item,
+      request: { ...item.request, model: null },
+    })),
+    luna.map((item) => ({
+      ...item,
+      request: { ...item.request, model: null },
+    })),
   );
   assert.ok(
     terra.every(
@@ -343,9 +362,7 @@ test("paid-mode executor invokes only candidate research and accounts safely", a
   assert.equal(output.insufficient_count, 1);
   assert.equal(output.total_model_tokens, 250);
   assert.equal(output.total_web_search_calls, 3);
-  assert.ok(
-    Math.abs(output.total_model_token_cost_usd! - 0.0000928) < 1e-12,
-  );
+  assert.ok(Math.abs(output.total_model_token_cost_usd! - 0.0000928) < 1e-12);
   assert.equal(output.total_tool_cost_usd, 0.03);
   assert.ok(Math.abs(output.total_known_cost_usd! - 0.0300928) < 1e-12);
   assert.deepEqual(output.candidates[0]!.validated_sources, [
@@ -370,11 +387,10 @@ test("unvalidated citations cannot produce an answered replay result", async () 
   const client = {
     responses: {
       create: async (request: Record<string, unknown>) =>
-        response(
-          String(request.model),
-          "ANSWERED: Unsupported result.",
-          { title: "Unsafe", url: "javascript:alert(1)" },
-        ),
+        response(String(request.model), "ANSWERED: Unsupported result.", {
+          title: "Unsafe",
+          url: "javascript:alert(1)",
+        }),
     },
   } as unknown as Parameters<typeof executeDiscoveryResearchReplay>[0];
   const output = await executeDiscoveryResearchReplay(
@@ -384,7 +400,226 @@ test("unvalidated citations cannot produce an answered replay result", async () 
   assert.equal(output.answered_count, 0);
   assert.equal(output.insufficient_count, 2);
   assert.equal(
-    output.candidates.every((candidate) => candidate.validated_sources.length === 0),
+    output.candidates.every(
+      (candidate) => candidate.validated_sources.length === 0,
+    ),
     true,
   );
+});
+
+const replayImage = {
+  dataUrl: "data:image/png;base64,iVBORw0KGgo=",
+  mimeType: "image/png" as const,
+  sha256: "image-sha256",
+  byteLength: 8,
+};
+
+test("original-image treatment changes only the Responses input image", () => {
+  const plan = createDiscoveryResearchReplayPlan(
+    parsed(),
+    DISCOVERY_LUNA_RESEARCH_MODEL,
+  );
+  for (const built of candidateResearchRequestsForPlan(plan)) {
+    const treatment = addOriginalImageToCandidateResearchRequest(
+      built.request,
+      replayImage.dataUrl,
+    );
+    assertOriginalImageIsOnlyRequestDifference(built.request, treatment);
+    assert.equal(built.request.model, DISCOVERY_LUNA_RESEARCH_MODEL);
+    assert.equal(built.request.reasoning.effort, DISCOVERY_REASONING_EFFORT);
+    assert.equal(typeof built.request.input, "string");
+    const input = treatment.input as unknown as Array<{
+      content: Array<Record<string, unknown>>;
+    }>;
+    assert.deepEqual(input[0]!.content[0], {
+      type: "input_text",
+      text: built.request.input,
+    });
+    assert.deepEqual(input[0]!.content[1], {
+      type: "input_image",
+      image_url: replayImage.dataUrl,
+      detail: DISCOVERY_RESEARCH_IMAGE_DETAIL,
+    });
+    const normalizedTreatment = { ...treatment, input: built.request.input };
+    assert.deepEqual(normalizedTreatment, built.request);
+  }
+});
+
+test("image-access planning fails closed for missing image and invalid repeats", () => {
+  assert.throws(
+    () =>
+      createDiscoveryResearchImageAccessExperimentPlan(parsed(), {
+        imageAccess: "original-image",
+        repeat: 1,
+      }),
+    /--image is required/,
+  );
+  assert.throws(
+    () =>
+      createDiscoveryResearchImageAccessExperimentPlan(parsed(), {
+        imageAccess: "text-only",
+        repeat: 0,
+      }),
+    /positive integer/,
+  );
+  assert.throws(
+    () =>
+      createDiscoveryResearchImageAccessExperimentPlan(parsed(), {
+        imageAccess: "text-only",
+        repeat: 1,
+        imagePath: "/tmp/not-allowed.png",
+      }),
+    /not accepted/,
+  );
+});
+
+test("repeat=3 preserves independent arm attempts and computes aggregates", async () => {
+  const requestsByArm: Record<string, Array<Record<string, unknown>>> = {
+    "text-only": [],
+    "original-image": [],
+  };
+  const makeClient = (arm: "text-only" | "original-image") =>
+    ({
+      responses: {
+        create: async (request: Record<string, unknown>) => {
+          requestsByArm[arm].push(request);
+          const candidateOne = JSON.stringify(request.input).includes(
+            "CANDIDATE ID: c1",
+          );
+          return candidateOne
+            ? response(
+                String(request.model),
+                "ANSWERED: A validated repeat finding.",
+                { title: "Repeat", url: "https://example.com/repeat" },
+                2,
+              )
+            : response(
+                String(request.model),
+                "INSUFFICIENT: Reliable evidence was not found.",
+                undefined,
+                1,
+              );
+        },
+      },
+    }) as unknown as Parameters<
+      typeof executeDiscoveryResearchImageAccessExperiment
+    >[0];
+
+  const textPlan = createDiscoveryResearchImageAccessExperimentPlan(parsed(), {
+    imageAccess: "text-only",
+    repeat: 3,
+  });
+  const imagePlan = createDiscoveryResearchImageAccessExperimentPlan(parsed(), {
+    imageAccess: "original-image",
+    repeat: 3,
+    imagePath: "/tmp/explicit.png",
+  });
+  const control = await executeDiscoveryResearchImageAccessExperiment(
+    makeClient("text-only"),
+    textPlan,
+    null,
+  );
+  const treatment = await executeDiscoveryResearchImageAccessExperiment(
+    makeClient("original-image"),
+    imagePlan,
+    replayImage,
+  );
+
+  for (const output of [control, treatment]) {
+    assert.equal(output.attempts.length, 6);
+    assert.deepEqual(
+      output.attempts.map((attempt) => attempt.repeat_index),
+      [1, 1, 2, 2, 3, 3],
+    );
+    assert.equal(output.aggregate.total_candidate_attempts, 6);
+    assert.equal(output.aggregate.answered_count, 3);
+    assert.equal(output.aggregate.insufficient_count, 3);
+    assert.equal(output.aggregate.answered_rate, 0.5);
+    assert.equal(output.aggregate.source_validation_failures, 0);
+    assert.ok(output.aggregate.mean_latency_ms! >= 0);
+    assert.equal(output.aggregate.median_tool_cost_usd, 0.015);
+  }
+  assert.equal(
+    requestsByArm["text-only"].every(
+      (request) => typeof request.input === "string",
+    ),
+    true,
+  );
+  assert.equal(
+    requestsByArm["original-image"].every((request) =>
+      Array.isArray(request.input),
+    ),
+    true,
+  );
+  assert.equal(
+    control.experiment_fingerprint,
+    treatment.experiment_fingerprint,
+  );
+  assert.equal(treatment.image?.sha256, replayImage.sha256);
+  assert.doesNotMatch(JSON.stringify(treatment), /base64|iVBORw0KGgo=/);
+});
+
+test("treatment retains production source validation and rejects arbitrary URLs", async () => {
+  let calls = 0;
+  const client = {
+    responses: {
+      create: async (request: Record<string, unknown>) => {
+        calls += 1;
+        return response(
+          String(request.model),
+          "ANSWERED: Unsupported image-assisted result.",
+          { title: "Unsafe", url: "javascript:alert(1)" },
+        );
+      },
+    },
+  } as unknown as Parameters<
+    typeof executeDiscoveryResearchImageAccessExperiment
+  >[0];
+  const output = await executeDiscoveryResearchImageAccessExperiment(
+    client,
+    createDiscoveryResearchImageAccessExperimentPlan(parsed(), {
+      imageAccess: "original-image",
+      repeat: 1,
+      imagePath: "/tmp/explicit.png",
+    }),
+    replayImage,
+  );
+  assert.equal(calls, 2);
+  assert.equal(output.aggregate.answered_count, 0);
+  assert.equal(output.aggregate.source_validation_failures, 2);
+  assert.equal(
+    output.attempts.every(
+      (attempt) =>
+        attempt.status === "insufficient" &&
+        attempt.validated_sources.length === 0,
+    ),
+    true,
+  );
+});
+
+test("missing treatment image fails before any model call", async () => {
+  let calls = 0;
+  const client = {
+    responses: {
+      create: async () => {
+        calls += 1;
+        throw new Error("must not run");
+      },
+    },
+  } as unknown as Parameters<
+    typeof executeDiscoveryResearchImageAccessExperiment
+  >[0];
+  await assert.rejects(
+    executeDiscoveryResearchImageAccessExperiment(
+      client,
+      createDiscoveryResearchImageAccessExperimentPlan(parsed(), {
+        imageAccess: "original-image",
+        repeat: 1,
+        imagePath: "/tmp/explicit.png",
+      }),
+      null,
+    ),
+    /requires a validated image/,
+  );
+  assert.equal(calls, 0);
 });

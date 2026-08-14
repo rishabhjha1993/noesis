@@ -3,10 +3,11 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { loadEnvFile } from "node:process";
 import {
-  createDiscoveryResearchReplayDryRun,
-  createDiscoveryResearchReplayPlan,
-  executeDiscoveryResearchReplay,
-  isDiscoveryCandidateResearchModel,
+  createDiscoveryResearchImageAccessExperimentDryRun,
+  createDiscoveryResearchImageAccessExperimentPlan,
+  executeDiscoveryResearchImageAccessExperiment,
+  isDiscoveryResearchImageAccessMode,
+  loadDiscoveryResearchReplayImage,
   loadRetainedDiscoveryReplayInput,
 } from "./discoveryResearchReplay";
 
@@ -24,23 +25,43 @@ function requiredOption(name: string): string {
 }
 
 async function main(): Promise<void> {
-  const inputPath = path.resolve(requiredOption("--input"));
+  const baselineOption = option("--baseline-json") ?? option("--input");
+  if (!baselineOption) throw new Error("--baseline-json is required");
+  const inputPath = path.resolve(baselineOption);
   const sourceDiscoveryId = requiredOption("--source-discovery-id");
-  const model = requiredOption("--model");
-  if (!isDiscoveryCandidateResearchModel(model)) {
-    throw new Error("--model must be gpt-5.6-terra or gpt-5.6-luna");
+  const imageAccess = requiredOption("--image-access");
+  if (!isDiscoveryResearchImageAccessMode(imageAccess)) {
+    throw new Error("--image-access must be text-only or original-image");
   }
+  const suppliedModel = option("--model");
+  if (suppliedModel && suppliedModel !== "gpt-5.6-luna") {
+    throw new Error(
+      "The image-access experiment model is fixed at gpt-5.6-luna",
+    );
+  }
+  const repeat = Number(option("--repeat") ?? "1");
+  const imageOption = option("--image");
+  const imagePath = imageOption ? path.resolve(imageOption) : undefined;
   const outputOption = option("--output");
   const outputPath = outputOption ? path.resolve(outputOption) : undefined;
   const retained = await loadRetainedDiscoveryReplayInput(
     inputPath,
     sourceDiscoveryId,
   );
-  const plan = createDiscoveryResearchReplayPlan(retained, model, outputPath);
+  const plan = createDiscoveryResearchImageAccessExperimentPlan(retained, {
+    imageAccess,
+    repeat,
+    imagePath,
+    outputPath,
+  });
+  const image =
+    imageAccess === "original-image"
+      ? await loadDiscoveryResearchReplayImage(plan.imagePath!)
+      : null;
   const execute = process.argv.includes("--execute");
   if (!execute) {
     process.stdout.write(
-      `${JSON.stringify(createDiscoveryResearchReplayDryRun(plan), null, 2)}\n`,
+      `${JSON.stringify(createDiscoveryResearchImageAccessExperimentDryRun(plan), null, 2)}\n`,
     );
     return;
   }
@@ -60,10 +81,11 @@ async function main(): Promise<void> {
   );
   const OpenAI = apiRequire("openai").default as new (options: {
     apiKey: string;
-  }) => Parameters<typeof executeDiscoveryResearchReplay>[0];
-  const result = await executeDiscoveryResearchReplay(
+  }) => Parameters<typeof executeDiscoveryResearchImageAccessExperiment>[0];
+  const result = await executeDiscoveryResearchImageAccessExperiment(
     new OpenAI({ apiKey }),
     plan,
+    image,
   );
   await writeFile(outputPath, `${JSON.stringify(result, null, 2)}\n`, {
     flag: "wx",

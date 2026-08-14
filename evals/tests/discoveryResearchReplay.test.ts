@@ -168,6 +168,68 @@ function parsed() {
   );
 }
 
+function fiveCandidateReplayInput(
+  version: "discovery-engine-v1" | typeof FROZEN_V1_ENGINE_VERSION,
+) {
+  const candidates = Array.from({ length: 5 }, (_, index) => {
+    const number = index + 1;
+    return {
+      id: `cand-0${number}`,
+      question_id: `q${number}`,
+      visual_trigger: `Visible thematic feature number ${number}.`,
+      observation: `Feature ${number} has a distinct visible spatial pattern.`,
+      region_ids: ["r1"],
+      investigation_question: `What explains visible thematic feature ${number}?`,
+      research_needed: true,
+      research_rationale: `External evidence could explain visible feature ${number}.`,
+      identity_context_needed: true,
+    };
+  });
+  const fiveCandidateStage1 = {
+    ...stage1,
+    candidates,
+    identity_hypotheses: [
+      {
+        ...stage1.identity_hypotheses[0]!,
+        relevant_question_ids: ["q1", "q2", "q3"],
+      },
+    ],
+  };
+  return parseRetainedDiscoveryReplayInput(
+    {
+      status: "done",
+      result: {
+        version,
+        regions: fiveCandidateStage1.regions,
+        discoveries: [],
+        inspection: {
+          stage1: fiveCandidateStage1,
+          identity_verification: verifiedIdentity,
+          research_results: candidates.map((candidate) => ({
+            candidate_id: candidate.id,
+            question_id: candidate.question_id,
+            question: candidate.investigation_question,
+            status: "insufficient",
+            finding: "Retained evidence was insufficient.",
+            sources: [],
+          })),
+          discovery_candidates: {},
+        },
+        metrics: {
+          success: true,
+          stage2: {
+            calls: candidates.map((candidate) => ({
+              candidate_id: candidate.id,
+              total_known_cost_usd: 0.01,
+            })),
+          },
+        },
+      },
+    },
+    "five-candidate-run",
+  );
+}
+
 function response(
   model: string,
   outputText: string,
@@ -228,6 +290,106 @@ test("image-access replay accepts the frozen V1 retained envelope", () => {
   envelope.result.version = FROZEN_V1_ENGINE_VERSION;
   const input = parseRetainedDiscoveryReplayInput(envelope, "frozen-run");
   assert.equal(input.sourceEngineVersion, FROZEN_V1_ENGINE_VERSION);
+});
+
+test("frozen replay preserves hypothesis-scoped identity context in both actual arms", async () => {
+  const frozenInput = fiveCandidateReplayInput(FROZEN_V1_ENGINE_VERSION);
+  const expectedApplicability = [true, true, true, false, false];
+  const requestsByArm: Record<string, Array<Record<string, unknown>>> = {
+    "text-only": [],
+    "original-image": [],
+  };
+  const makeClient = (arm: "text-only" | "original-image") =>
+    ({
+      responses: {
+        create: async (request: Record<string, unknown>) => {
+          requestsByArm[arm].push(request);
+          return response(
+            String(request.model),
+            "INSUFFICIENT: Reliable evidence was not found.",
+          );
+        },
+      },
+    }) as unknown as Parameters<
+      typeof executeDiscoveryResearchImageAccessExperiment
+    >[0];
+
+  const controlPlan = createDiscoveryResearchImageAccessExperimentPlan(
+    frozenInput,
+    { imageAccess: "text-only", repeat: 1 },
+  );
+  const treatmentPlan = createDiscoveryResearchImageAccessExperimentPlan(
+    frozenInput,
+    {
+      imageAccess: "original-image",
+      repeat: 1,
+      imagePath: "/tmp/explicit.png",
+    },
+  );
+  assert.deepEqual(
+    controlPlan.candidates.map((item) => item.usedVerifiedIdentityContext),
+    expectedApplicability,
+  );
+  assert.deepEqual(
+    treatmentPlan.candidates.map((item) => item.usedVerifiedIdentityContext),
+    expectedApplicability,
+  );
+
+  const control = await executeDiscoveryResearchImageAccessExperiment(
+    makeClient("text-only"),
+    controlPlan,
+    null,
+  );
+  const treatment = await executeDiscoveryResearchImageAccessExperiment(
+    makeClient("original-image"),
+    treatmentPlan,
+    replayImage,
+  );
+  for (const output of [control, treatment]) {
+    assert.deepEqual(
+      output.attempts.map((attempt) => attempt.used_verified_identity_context),
+      expectedApplicability,
+    );
+  }
+
+  const controlRequests = requestsByArm["text-only"];
+  const treatmentRequests = requestsByArm["original-image"];
+  assert.equal(controlRequests.length, 5);
+  assert.equal(treatmentRequests.length, 5);
+  for (let index = 0; index < 5; index += 1) {
+    const controlRequest = controlRequests[index]!;
+    const treatmentRequest = treatmentRequests[index]!;
+    const treatmentInput = treatmentRequest.input as Array<{
+      role: string;
+      content: Array<Record<string, unknown>>;
+    }>;
+    assert.equal(treatmentInput.length, 1);
+    assert.equal(treatmentInput[0]!.content.length, 2);
+    const treatmentText = treatmentInput[0]!.content[0]!.text;
+    assert.equal(treatmentText, controlRequest.input);
+    assert.deepEqual(
+      { ...treatmentRequest, input: treatmentText },
+      controlRequest,
+    );
+    const text = String(controlRequest.input);
+    if (index < 3) {
+      assert.match(text, /VERIFIED IDENTITY CONTEXT/);
+    } else {
+      assert.doesNotMatch(text, /VERIFIED IDENTITY CONTEXT/);
+      assert.match(text, /IDENTITY VERIFICATION STATUS: verified/);
+    }
+  }
+});
+
+test("mutable replay retains all identity-dependent candidate applicability", () => {
+  const mutablePlan = createDiscoveryResearchImageAccessExperimentPlan(
+    fiveCandidateReplayInput("discovery-engine-v1"),
+    { imageAccess: "text-only", repeat: 1 },
+  );
+  assert.deepEqual(
+    mutablePlan.candidates.map((item) => item.usedVerifiedIdentityContext),
+    [true, true, true, true, true],
+  );
 });
 
 test("replay rejects failed, incomplete, or unresolved retained input", () => {

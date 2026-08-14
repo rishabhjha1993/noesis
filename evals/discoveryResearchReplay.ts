@@ -22,7 +22,11 @@ import {
   type DiscoveryCandidateResearchModel,
   type DiscoveryResearchCallMetrics,
 } from "../artifacts/api-server/src/lib/discoveryPipeline";
-import { FROZEN_V1_ENGINE_VERSION } from "../artifacts/api-server/src/lib/discoveryFrozenV1";
+import {
+  FROZEN_V1_ENGINE_VERSION,
+  buildFrozenV1ResearchRequest,
+  frozenV1ApplicableCandidateIds,
+} from "../artifacts/api-server/src/lib/discoveryFrozenV1";
 
 export const DISCOVERY_RESEARCH_REPLAY_VERSION =
   "noesis-discovery-research-replay-v1";
@@ -234,9 +238,7 @@ export function createDiscoveryResearchReplayPlan(
   model: DiscoveryCandidateResearchModel,
   outputPath?: string,
 ): DiscoveryResearchReplayPlan {
-  const applicable = new Set(
-    identityApplicableCandidateIds(input.stage1, input.identityVerification),
-  );
+  const applicable = new Set(replayIdentityApplicableCandidateIds(input));
   const retainedByCandidate = new Map(
     input.retainedResearchResults.map((result) => [
       result.candidate_id,
@@ -263,6 +265,14 @@ export function createDiscoveryResearchReplayPlan(
       };
     });
   return { input, model, candidates, outputPath: outputPath ?? null };
+}
+
+function replayIdentityApplicableCandidateIds(
+  input: RetainedDiscoveryReplayInput,
+): string[] {
+  return input.sourceEngineVersion === FROZEN_V1_ENGINE_VERSION
+    ? frozenV1ApplicableCandidateIds(input.stage1, input.identityVerification)
+    : identityApplicableCandidateIds(input.stage1, input.identityVerification);
 }
 
 export function isDiscoveryResearchImageAccessMode(
@@ -361,6 +371,33 @@ type ImageCandidateResearchRequest = Omit<CandidateResearchRequest, "input"> & {
   }>;
 };
 
+function buildDiscoveryResearchReplayCandidateRequest(
+  input: RetainedDiscoveryReplayInput,
+  candidate: DiscoveryCandidate,
+  model: DiscoveryCandidateResearchModel,
+) {
+  const current = buildDiscoveryCandidateResearchRequest(
+    input.stage1,
+    candidate,
+    input.identityVerification,
+    model,
+  );
+  if (input.sourceEngineVersion !== FROZEN_V1_ENGINE_VERSION) return current;
+
+  const frozen = buildFrozenV1ResearchRequest(
+    input.stage1,
+    candidate,
+    input.identityVerification,
+  );
+  return {
+    usedVerifiedIdentityContext: frozen.usedVerifiedIdentityContext,
+    request: {
+      ...current.request,
+      input: frozen.request.input,
+    },
+  };
+}
+
 export function addOriginalImageToCandidateResearchRequest(
   request: CandidateResearchRequest,
   imageDataUrl: string,
@@ -445,10 +482,9 @@ export function discoveryResearchExperimentFingerprint(
     model: plan.model,
     reasoning_effort: DISCOVERY_REASONING_EFFORT,
     candidates: plan.candidates.map((item) => {
-      const built = buildDiscoveryCandidateResearchRequest(
-        plan.input.stage1,
+      const built = buildDiscoveryResearchReplayCandidateRequest(
+        plan.input,
         item.candidate,
-        plan.input.identityVerification,
         plan.model,
       );
       return {
@@ -523,14 +559,45 @@ export async function executeDiscoveryResearchReplay(
     call: DiscoveryResearchCallMetrics;
   }> = [];
   for (const item of plan.candidates) {
-    const call = await runDiscoveryCandidateResearchCall(
-      openai,
+    const replayBuilt = buildDiscoveryResearchReplayCandidateRequest(
+      plan.input,
+      item.candidate,
+      plan.model,
+    );
+    const productionBuilt = buildDiscoveryCandidateResearchRequest(
       plan.input.stage1,
       item.candidate,
       plan.input.identityVerification,
       plan.model,
     );
-    completed.push(call);
+    const wrappedOpenAI = {
+      responses: {
+        create: async (request: CandidateResearchRequest) => {
+          if (
+            JSON.stringify(request) !== JSON.stringify(productionBuilt.request)
+          ) {
+            throw new Error(
+              "Production candidate request changed during replay",
+            );
+          }
+          return openai.responses.create(replayBuilt.request);
+        },
+      },
+    } as unknown as Parameters<typeof runDiscoveryCandidateResearchCall>[0];
+    const call = await runDiscoveryCandidateResearchCall(
+      wrappedOpenAI,
+      plan.input.stage1,
+      item.candidate,
+      plan.input.identityVerification,
+      plan.model,
+    );
+    completed.push({
+      ...call,
+      call: {
+        ...call.call,
+        used_verified_identity_context: replayBuilt.usedVerifiedIdentityContext,
+      },
+    });
   }
   const output = {
     replay_version: DISCOVERY_RESEARCH_REPLAY_VERSION,
@@ -626,7 +693,12 @@ function candidateResearchRequestsForExperimentPlan(
   image: DiscoveryResearchReplayImage | null,
 ) {
   return plan.candidates.map((item) => {
-    const built = buildDiscoveryCandidateResearchRequest(
+    const built = buildDiscoveryResearchReplayCandidateRequest(
+      plan.input,
+      item.candidate,
+      plan.model,
+    );
+    const productionBuilt = buildDiscoveryCandidateResearchRequest(
       plan.input.stage1,
       item.candidate,
       plan.input.identityVerification,
@@ -638,7 +710,7 @@ function candidateResearchRequestsForExperimentPlan(
     if (treatment) {
       assertOriginalImageIsOnlyRequestDifference(built.request, treatment);
     }
-    return { item, built, treatment };
+    return { item, built, productionBuilt, treatment };
   });
 }
 
@@ -697,7 +769,7 @@ export async function executeDiscoveryResearchImageAccessExperiment(
           create: async (request: CandidateResearchRequest) => {
             if (
               JSON.stringify(request) !==
-              JSON.stringify(preparedCandidate.built.request)
+              JSON.stringify(preparedCandidate.productionBuilt.request)
             ) {
               throw new Error(
                 "Production candidate request changed during replay",
@@ -706,7 +778,7 @@ export async function executeDiscoveryResearchImageAccessExperiment(
             const sentRequest =
               plan.imageAccess === "original-image"
                 ? preparedCandidate.treatment!
-                : request;
+                : preparedCandidate.built.request;
             const response = await openai.responses.create(sentRequest);
             declaredAnswered = /^\s*ANSWERED\s*:/i.test(response.output_text);
             return response;
@@ -727,7 +799,7 @@ export async function executeDiscoveryResearchImageAccessExperiment(
         question_id: completed.result.question_id,
         approved_question: completed.result.question,
         used_verified_identity_context:
-          completed.call.used_verified_identity_context,
+          preparedCandidate.built.usedVerifiedIdentityContext,
         status: completed.result.status,
         finding: completed.result.finding,
         validated_sources: completed.result.sources,
@@ -855,10 +927,9 @@ export function candidateResearchRequestsForPlan(
   plan: DiscoveryResearchReplayPlan,
 ) {
   return plan.candidates.map((item) =>
-    buildDiscoveryCandidateResearchRequest(
-      plan.input.stage1,
+    buildDiscoveryResearchReplayCandidateRequest(
+      plan.input,
       item.candidate,
-      plan.input.identityVerification,
       plan.model,
     ),
   );

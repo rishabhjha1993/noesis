@@ -292,8 +292,9 @@ test("C1 allocation substitutes Luna only for candidate research", () => {
   assert.equal(DEFAULT_DISCOVERY_ENGINE_VARIANT, "v1");
 });
 
-test("lab selector exposes C1 explicitly without changing the default", () => {
+test("lab selector exposes frozen V1 and C1 without changing the API default", () => {
   assert.deepEqual(DISCOVERY_ENGINE_VARIANTS, [
+    "v1-frozen",
     "v1",
     "v1-batched-research",
     "v1-luna-research",
@@ -309,6 +310,7 @@ test("lab selector exposes C1 explicitly without changing the default", () => {
     /Luna candidate research \(C1\)/,
   );
   assert.equal(isDiscoveryEngineVariant("v1-luna-research"), true);
+  assert.equal(isDiscoveryEngineVariant("v1-frozen"), true);
   assert.equal(isDiscoveryEngineVariant("v1"), true);
   assert.equal(isDiscoveryEngineVariant("v1-batched-research"), true);
   assert.equal(isDiscoveryEngineVariant("unknown"), false);

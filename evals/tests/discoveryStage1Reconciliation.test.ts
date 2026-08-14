@@ -259,12 +259,12 @@ test("production continues after one-call dangling-reference repair and exposes 
   assert.equal(result.metrics.success, true);
   assert.equal(result.inspection.stage1.candidates.length, 1);
   assert.equal(
-    result.inspection.stage1_reconciliation
+    result.inspection.stage1_reconciliation!
       .unknown_candidate_region_references_removed,
     4,
   );
   assert.deepEqual(
-    result.inspection.stage1_reconciliation.candidate_ids_dropped,
+    result.inspection.stage1_reconciliation!.candidate_ids_dropped,
     ["cand_725_test"],
   );
   assert.doesNotMatch(

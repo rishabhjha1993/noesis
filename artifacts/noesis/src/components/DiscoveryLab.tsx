@@ -117,7 +117,7 @@ function DiscoveryCard({
 
 export function DiscoveryLab() {
   const [engineVariant, setEngineVariant] =
-    useState<DiscoveryEngineVariant>("v1");
+    useState<DiscoveryEngineVariant>("v1-frozen");
   const [file, setFile] = useState<File | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<"upload" | "loading" | "done" | "error">(
@@ -655,11 +655,9 @@ export function DiscoveryLab() {
                 className="rounded-md bg-primary px-6 py-3 font-medium text-primary-foreground hover:bg-primary/90"
               >
                 Run{" "}
-                {engineVariant === "v1"
-                  ? "V1 baseline"
-                  : engineVariant === "v1-batched-research"
-                    ? "V1 batched research"
-                    : "V1 Luna candidate research"}
+                {DISCOVERY_ENGINE_OPTIONS.find(
+                  (option) => option.value === engineVariant,
+                )?.label ?? "Discovery"}
               </button>
               <label className="cursor-pointer rounded-md border border-border px-6 py-3 font-medium hover:bg-muted">
                 Choose another

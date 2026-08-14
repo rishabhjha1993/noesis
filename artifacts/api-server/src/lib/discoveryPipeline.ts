@@ -37,6 +37,22 @@ import {
   type DiscoveryBatchValidationIssue,
 } from "./discoveryBatchResearch";
 import { estimateModelCost, estimateWebSearchToolCost } from "./modelPricing";
+import {
+  FROZEN_V1_ENGINE_VERSION,
+  FROZEN_V1_IDENTITY_VERIFICATION_INSTRUCTIONS,
+  FROZEN_V1_IDENTITY_VERIFICATION_JSON_SCHEMA,
+  FROZEN_V1_REASONING_EFFORT,
+  FROZEN_V1_RESEARCH_INSTRUCTIONS,
+  FROZEN_V1_STAGE1_MODEL,
+  FROZEN_V1_STAGE1_PROMPT,
+  FROZEN_V1_STAGE2_MODEL,
+  FROZEN_V1_STAGE3_MODEL,
+  FROZEN_V1_STAGE3_PROMPT,
+  buildFrozenV1IdentityInput,
+  buildFrozenV1ResearchRequest,
+  buildFrozenV1Stage3Context,
+  frozenV1ApplicableCandidateIds,
+} from "./discoveryFrozenV1";
 
 export const DISCOVERY_ENGINE_VERSION = "discovery-engine-v1";
 export const DISCOVERY_BATCHED_RESEARCH_ENGINE_VERSION =
@@ -44,7 +60,7 @@ export const DISCOVERY_BATCHED_RESEARCH_ENGINE_VERSION =
 export const DISCOVERY_LUNA_RESEARCH_ENGINE_VERSION =
   "discovery-engine-v1-luna-research";
 export type DiscoveryEngineVariant =
-  "v1" | "v1-batched-research" | "v1-luna-research";
+  "v1" | "v1-frozen" | "v1-batched-research" | "v1-luna-research";
 export const DEFAULT_DISCOVERY_ENGINE_VARIANT: DiscoveryEngineVariant = "v1";
 export const DISCOVERY_STAGE1_MODEL = "gpt-5.6-sol";
 export const DISCOVERY_STAGE2_MODEL = "gpt-5.6-terra";
@@ -68,6 +84,14 @@ export interface DiscoveryModelAllocation {
 export function discoveryModelAllocationForVariant(
   variant: DiscoveryEngineVariant,
 ): DiscoveryModelAllocation {
+  if (variant === "v1-frozen") {
+    return {
+      stage1: FROZEN_V1_STAGE1_MODEL,
+      identityVerification: FROZEN_V1_STAGE2_MODEL,
+      candidateResearch: FROZEN_V1_STAGE2_MODEL,
+      stage3: FROZEN_V1_STAGE3_MODEL,
+    };
+  }
   return {
     stage1: DISCOVERY_STAGE1_MODEL,
     identityVerification: DISCOVERY_STAGE2_MODEL,
@@ -82,6 +106,7 @@ export function discoveryModelAllocationForVariant(
 export function discoveryEngineVersionForVariant(
   variant: DiscoveryEngineVariant,
 ): string {
+  if (variant === "v1-frozen") return FROZEN_V1_ENGINE_VERSION;
   if (variant === "v1-batched-research") {
     return DISCOVERY_BATCHED_RESEARCH_ENGINE_VERSION;
   }
@@ -96,6 +121,7 @@ export function isDiscoveryEngineVariant(
 ): value is DiscoveryEngineVariant {
   return (
     value === "v1" ||
+    value === "v1-frozen" ||
     value === "v1-batched-research" ||
     value === "v1-luna-research"
   );
@@ -264,10 +290,10 @@ export interface DiscoveryPipelineMetrics {
     total_known_cost_usd: number | null;
     cost_usd: number | null;
     identity_verification: DiscoveryIdentityVerificationMetrics;
-    identity_dependent_research_candidates: number;
-    identity_blocked_candidate_ids: string[];
-    candidate_research_calls_avoided_by_identity_gate: number;
-    identity_independent_candidate_research_api_calls: number;
+    identity_dependent_research_candidates?: number;
+    identity_blocked_candidate_ids?: string[];
+    candidate_research_calls_avoided_by_identity_gate?: number;
+    identity_independent_candidate_research_api_calls?: number;
     candidate_calls_using_verified_identity: number;
     candidate_research_api_calls: number;
     answered_candidates: number;
@@ -379,10 +405,10 @@ export interface DiscoveryFailureDiagnostic {
       | null;
     research: {
       attempted_calls: number;
-      identity_dependent_candidates: number;
-      identity_blocked_candidate_ids: string[];
-      candidate_calls_avoided_by_identity_gate: number;
-      identity_independent_api_calls: number;
+      identity_dependent_candidates?: number;
+      identity_blocked_candidate_ids?: string[];
+      candidate_calls_avoided_by_identity_gate?: number;
+      identity_independent_api_calls?: number;
       completed_calls: DiscoveryCompletedResearchCallMetrics[];
       known_usage: DiscoverySafeUsageMetrics | null;
       known_web_search_calls: number;
@@ -405,6 +431,7 @@ interface DiscoveryExecutionState {
   startedAt: number;
   engineVersion: string;
   stage2AggregateModel: string;
+  usesIdentityGate: boolean;
   stageReached: DiscoveryFailureStage;
   lastCompletedStage: DiscoveryFailureDiagnostic["last_completed_stage"];
   currentCandidateId?: string;
@@ -444,11 +471,13 @@ function createExecutionState(
   startedAt = Date.now(),
   engineVersion = DISCOVERY_ENGINE_VERSION,
   stage2AggregateModel = DISCOVERY_STAGE2_MODEL,
+  usesIdentityGate = true,
 ): DiscoveryExecutionState {
   return {
     startedAt,
     engineVersion,
     stage2AggregateModel,
+    usesIdentityGate,
     stageReached: "unknown",
     lastCompletedStage: "none",
     stage1: null,
@@ -772,13 +801,17 @@ function createFailureDiagnostic(
         : null,
       research: {
         attempted_calls: state.attemptedResearchCalls,
-        identity_dependent_candidates:
-          state.identityDependentResearchCandidates,
-        identity_blocked_candidate_ids: state.identityBlockedCandidateIds,
-        candidate_calls_avoided_by_identity_gate:
-          state.candidateResearchCallsAvoidedByIdentityGate,
-        identity_independent_api_calls:
-          state.identityIndependentCandidateResearchApiCalls,
+        ...(state.usesIdentityGate
+          ? {
+              identity_dependent_candidates:
+                state.identityDependentResearchCandidates,
+              identity_blocked_candidate_ids: state.identityBlockedCandidateIds,
+              candidate_calls_avoided_by_identity_gate:
+                state.candidateResearchCallsAvoidedByIdentityGate,
+              identity_independent_api_calls:
+                state.identityIndependentCandidateResearchApiCalls,
+            }
+          : {}),
         completed_calls: completedResearchCalls,
         known_usage: knownStage2Usage ? safeUsage(knownStage2Usage) : null,
         known_web_search_calls: state.knownStage2Metrics.reduce(
@@ -1061,6 +1094,66 @@ async function runIdentityResolution(
   };
 }
 
+async function runFrozenV1IdentityVerification(
+  openai: OpenAI,
+  stage1: DiscoveryStage1,
+  gatedCandidates: DiscoveryCandidate[],
+  state: DiscoveryExecutionState,
+): Promise<DiscoveryIdentityVerificationExecution> {
+  const frozenInput = buildFrozenV1IdentityInput(stage1, gatedCandidates);
+  if (!frozenInput) return identityNotRun();
+
+  state.stageReached = "identity_verification";
+  state.currentCandidateId = undefined;
+  state.currentQuestionId = undefined;
+  const started = Date.now();
+  const response = await openai.responses.create({
+    model: FROZEN_V1_STAGE2_MODEL,
+    reasoning: { effort: FROZEN_V1_REASONING_EFFORT },
+    tools: [{ type: "web_search", search_context_size: "medium" }],
+    tool_choice: "required",
+    include: ["web_search_call.action.sources"],
+    store: false,
+    max_output_tokens: 3000,
+    text: { format: FROZEN_V1_IDENTITY_VERIFICATION_JSON_SCHEMA },
+    instructions: FROZEN_V1_IDENTITY_VERIFICATION_INSTRUCTIONS,
+    input: frozenInput.input,
+  });
+  const usage = normalizeResponseUsage(response, Date.now() - started);
+  const metrics = stageMetrics(usage, countWebSearchCalls(response));
+  state.knownStage2Metrics.push(metrics);
+  state.identityVerification = {
+    ...metrics,
+    completed: false,
+    status: null,
+  };
+  const draft = JSON.parse(response.output_text) as { hypothesis_id?: unknown };
+  if (typeof draft.hypothesis_id !== "string") {
+    throw new Error(
+      "Frozen V1 identity verification requires a Stage-1 hypothesis id",
+    );
+  }
+  const result = validateIdentityVerification(
+    stage1,
+    draft,
+    extractValidatedSources(response),
+  );
+  state.identityVerification = {
+    ...metrics,
+    completed: true,
+    status: result.status,
+  };
+  state.lastCompletedStage = "identity_verification";
+  return {
+    result,
+    metrics: {
+      ran: true,
+      status: result.status,
+      ...metrics,
+    },
+  };
+}
+
 async function runSelectiveResearchWithState(
   openai: OpenAI,
   stage1: DiscoveryStage1,
@@ -1150,6 +1243,66 @@ async function runSelectiveResearchWithState(
   };
 }
 
+async function runFrozenV1SelectiveResearchWithState(
+  openai: OpenAI,
+  stage1: DiscoveryStage1,
+  state: DiscoveryExecutionState,
+): Promise<DiscoveryResearchExecution> {
+  const rawResults: DiscoveryResearchResult[] = [];
+  const calls: DiscoveryResearchCallMetrics[] = [];
+  const gatedCandidates = stage1.candidates.filter(
+    (candidate) => evaluateResearchGate(stage1, candidate).allowed,
+  );
+  const identityVerification = await runFrozenV1IdentityVerification(
+    openai,
+    stage1,
+    gatedCandidates,
+    state,
+  );
+
+  state.stageReached = "research";
+  for (const candidate of gatedCandidates) {
+    state.currentCandidateId = candidate.id;
+    state.currentQuestionId = candidate.question_id;
+    state.attemptedResearchCalls += 1;
+    const completed = await executeDiscoveryCandidateResearchCall(
+      openai,
+      stage1,
+      candidate,
+      buildFrozenV1ResearchRequest(
+        stage1,
+        candidate,
+        identityVerification.result,
+      ),
+      (metrics) => state.knownStage2Metrics.push(metrics),
+    );
+    rawResults.push(completed.result);
+    calls.push(completed.call);
+    state.researchCalls.push(completed.call);
+  }
+
+  const results = validateResearchResults(stage1, rawResults);
+  state.currentCandidateId = undefined;
+  state.currentQuestionId = undefined;
+  state.lastCompletedStage = "research";
+  return {
+    results,
+    calls,
+    identityVerification,
+    gatedCandidates: gatedCandidates.length,
+    identityDependentResearchCandidates: 0,
+    identityBlockedCandidateIds: [],
+    candidateResearchCallsAvoidedByIdentityGate: 0,
+    identityIndependentCandidateResearchApiCalls: 0,
+    candidateResearchApiCalls: calls.length,
+    candidateCallsUsingVerifiedIdentity: calls.filter(
+      (call) => call.used_verified_identity_context,
+    ).length,
+    batchMetrics: null,
+    batchInspection: null,
+  };
+}
+
 export function buildDiscoveryCandidateResearchRequest(
   stage1: DiscoveryStage1,
   candidate: DiscoveryCandidate,
@@ -1225,6 +1378,28 @@ export async function runDiscoveryCandidateResearchCall(
     identityVerification,
     model,
   );
+  return executeDiscoveryCandidateResearchCall(
+    openai,
+    stage1,
+    candidate,
+    built,
+    onMetrics,
+  );
+}
+
+async function executeDiscoveryCandidateResearchCall(
+  openai: OpenAI,
+  stage1: DiscoveryStage1,
+  candidate: DiscoveryCandidate,
+  built:
+    | ReturnType<typeof buildDiscoveryCandidateResearchRequest>
+    | ReturnType<typeof buildFrozenV1ResearchRequest>,
+  onMetrics?: (metrics: DiscoveryStageMetrics) => void,
+): Promise<{
+  result: DiscoveryResearchResult;
+  call: DiscoveryResearchCallMetrics;
+  metrics: DiscoveryStageMetrics;
+}> {
   const started = Date.now();
   const response = await openai.responses.create(built.request);
   const usage = normalizeResponseUsage(response, Date.now() - started);
@@ -1502,11 +1677,15 @@ async function runDiscoveryPipelineWithState(
   variant: DiscoveryEngineVariant,
 ): Promise<DiscoveryPipelineResult> {
   const modelAllocation = discoveryModelAllocationForVariant(variant);
+  const isFrozenV1 = variant === "v1-frozen";
+  const reasoningEffort = isFrozenV1
+    ? FROZEN_V1_REASONING_EFFORT
+    : DISCOVERY_REASONING_EFFORT;
   state.stageReached = "stage1";
   const stage1Started = Date.now();
   const stage1Response = await openai.chat.completions.create({
-    model: DISCOVERY_STAGE1_MODEL,
-    reasoning_effort: DISCOVERY_REASONING_EFFORT,
+    model: modelAllocation.stage1,
+    reasoning_effort: reasoningEffort,
     max_completion_tokens: 10000,
     response_format: {
       type: "json_schema",
@@ -1517,7 +1696,10 @@ async function runDiscoveryPipelineWithState(
       },
     },
     messages: [
-      { role: "system", content: STAGE1_PROMPT },
+      {
+        role: "system",
+        content: isFrozenV1 ? FROZEN_V1_STAGE1_PROMPT : STAGE1_PROMPT,
+      },
       {
         role: "user",
         content: [
@@ -1542,14 +1724,24 @@ async function runDiscoveryPipelineWithState(
   const stage1Text = stage1Response.choices[0]?.message.content;
   if (!stage1Text)
     throw new Error("Discovery Stage 1 returned an empty response");
-  const stage1Draft = DiscoveryStage1DraftSchema.parse(JSON.parse(stage1Text));
-  const reconciledStage1 = reconcileDiscoveryStage1References(stage1Draft);
-  state.stage1Reconciliation = reconciledStage1.diagnostics;
-  const stage1 = DiscoveryStage1Schema.parse(reconciledStage1.stage1);
+  const parsedStage1 = JSON.parse(stage1Text);
+  let stage1: DiscoveryStage1;
+  let stage1Reconciliation: DiscoveryStage1ReconciliationDiagnostics | null =
+    null;
+  if (isFrozenV1) {
+    stage1 = DiscoveryStage1Schema.parse(parsedStage1);
+  } else {
+    const stage1Draft = DiscoveryStage1DraftSchema.parse(parsedStage1);
+    const reconciledStage1 = reconcileDiscoveryStage1References(stage1Draft);
+    state.stage1Reconciliation = reconciledStage1.diagnostics;
+    stage1Reconciliation = reconciledStage1.diagnostics;
+    stage1 = DiscoveryStage1Schema.parse(reconciledStage1.stage1);
+  }
   state.lastCompletedStage = "stage1";
 
-  const research =
-    variant === "v1-batched-research"
+  const research = isFrozenV1
+    ? await runFrozenV1SelectiveResearchWithState(openai, stage1, state)
+    : variant === "v1-batched-research"
       ? await runBatchedSelectiveResearchWithState(openai, stage1, state)
       : await runSelectiveResearchWithState(
           openai,
@@ -1590,25 +1782,39 @@ async function runDiscoveryPipelineWithState(
 
   state.stageReached = "stage3";
   const stage3Started = Date.now();
-  const stage3Evidence = createStage3Evidence(
-    stage1,
-    research.results,
-    research.identityVerification.result,
-  );
-  const stage3Grounding = {
-    ...stage1,
-    identity_hypotheses:
-      research.identityVerification.result?.status === "verified"
-        ? stage1.identity_hypotheses.filter(
-            (hypothesis) =>
-              hypothesis.id ===
-              research.identityVerification.result?.hypothesis_id,
-          )
-        : [],
-  };
+  const frozenStage3Context = isFrozenV1
+    ? buildFrozenV1Stage3Context(
+        stage1,
+        research.results,
+        research.identityVerification.result,
+      )
+    : null;
+  const stage3Evidence = isFrozenV1
+    ? {
+        research_results: frozenStage3Context!.researchResults,
+        identity_verification: frozenStage3Context!.identityContext,
+      }
+    : createStage3Evidence(
+        stage1,
+        research.results,
+        research.identityVerification.result,
+      );
+  const stage3Grounding = isFrozenV1
+    ? frozenStage3Context!.grounding
+    : {
+        ...stage1,
+        identity_hypotheses:
+          research.identityVerification.result?.status === "verified"
+            ? stage1.identity_hypotheses.filter(
+                (hypothesis) =>
+                  hypothesis.id ===
+                  research.identityVerification.result?.hypothesis_id,
+              )
+            : [],
+      };
   const stage3Response = await openai.chat.completions.create({
-    model: DISCOVERY_STAGE3_MODEL,
-    reasoning_effort: DISCOVERY_REASONING_EFFORT,
+    model: modelAllocation.stage3,
+    reasoning_effort: reasoningEffort,
     max_completion_tokens: 10000,
     response_format: {
       type: "json_schema",
@@ -1621,7 +1827,7 @@ async function runDiscoveryPipelineWithState(
     messages: [
       {
         role: "system",
-        content: STAGE3_PROMPT,
+        content: isFrozenV1 ? FROZEN_V1_STAGE3_PROMPT : STAGE3_PROMPT,
       },
       {
         role: "user",
@@ -1658,6 +1864,12 @@ async function runDiscoveryPipelineWithState(
     research.results,
     parsedStage3,
     research.identityVerification.result,
+    isFrozenV1
+      ? frozenV1ApplicableCandidateIds(
+          stage1,
+          research.identityVerification.result,
+        )
+      : undefined,
   );
 
   const totalModelTokenCost = sumNullable([
@@ -1692,7 +1904,9 @@ async function runDiscoveryPipelineWithState(
     discoveries: validated.discoveries,
     inspection: {
       stage1,
-      stage1_reconciliation: reconciledStage1.diagnostics,
+      ...(stage1Reconciliation
+        ? { stage1_reconciliation: stage1Reconciliation }
+        : {}),
       identity_verification: research.identityVerification.result,
       research_results: research.results,
       discovery_candidates: validated.discoveryCandidates,
@@ -1718,13 +1932,18 @@ async function runDiscoveryPipelineWithState(
         total_known_cost_usd: stage2Cost,
         cost_usd: stage2Cost,
         identity_verification: research.identityVerification.metrics,
-        identity_dependent_research_candidates:
-          research.identityDependentResearchCandidates,
-        identity_blocked_candidate_ids: research.identityBlockedCandidateIds,
-        candidate_research_calls_avoided_by_identity_gate:
-          research.candidateResearchCallsAvoidedByIdentityGate,
-        identity_independent_candidate_research_api_calls:
-          research.identityIndependentCandidateResearchApiCalls,
+        ...(!isFrozenV1
+          ? {
+              identity_dependent_research_candidates:
+                research.identityDependentResearchCandidates,
+              identity_blocked_candidate_ids:
+                research.identityBlockedCandidateIds,
+              candidate_research_calls_avoided_by_identity_gate:
+                research.candidateResearchCallsAvoidedByIdentityGate,
+              identity_independent_candidate_research_api_calls:
+                research.identityIndependentCandidateResearchApiCalls,
+            }
+          : {}),
         candidate_calls_using_verified_identity:
           research.candidateCallsUsingVerifiedIdentity,
         candidate_research_api_calls: research.candidateResearchApiCalls,
@@ -1766,6 +1985,7 @@ export async function runDiscoveryPipeline(
     pipelineStarted,
     engineVersion,
     modelAllocation.candidateResearch,
+    variant !== "v1-frozen",
   );
 
   try {

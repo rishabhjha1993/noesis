@@ -3,6 +3,10 @@ import {
   DISCOVERY_ENGINE_VERSION,
   type DiscoveryPipelineResult,
 } from "./discoveryPipeline";
+import {
+  FROZEN_V1_CACHE_REVISION,
+  FROZEN_V1_ENGINE_VERSION,
+} from "./discoveryFrozenV1";
 
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 20;
@@ -29,8 +33,12 @@ export function computeDiscoveryCacheKey(
   const imageHash = createHash("sha256")
     .update(Buffer.from(base64, "base64"))
     .digest("hex");
+  const contractRevision =
+    engineVersion === FROZEN_V1_ENGINE_VERSION
+      ? FROZEN_V1_CACHE_REVISION
+      : DISCOVERY_CACHE_CONTRACT_REVISION;
   return {
-    cacheKey: `${engineVersion}:${DISCOVERY_CACHE_CONTRACT_REVISION}:${imageHash}`,
+    cacheKey: `${engineVersion}:${contractRevision}:${imageHash}`,
     imageHash,
   };
 }

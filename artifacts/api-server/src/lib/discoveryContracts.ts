@@ -341,7 +341,7 @@ export type DiscoveryDraft = z.infer<typeof DiscoveryDraftSchema>;
 
 export interface DiscoveryInspection {
   stage1: DiscoveryStage1;
-  stage1_reconciliation: DiscoveryStage1ReconciliationDiagnostics;
+  stage1_reconciliation?: DiscoveryStage1ReconciliationDiagnostics;
   identity_verification: DiscoveryIdentityVerification | null;
   research_results: DiscoveryResearchResult[];
   discovery_candidates: Record<string, string[]>;
@@ -587,6 +587,7 @@ export function validateDiscoveryOutput(
   researchResults: DiscoveryResearchResult[],
   input: unknown,
   identityVerification: DiscoveryIdentityVerification | null = null,
+  identityApplicableCandidateIdsOverride?: string[],
 ): ValidatedDiscoveries {
   const parsed = DiscoveryStage3Schema.parse(input);
   const regionIds = new Set(stage1.regions.map((region) => region.id));
@@ -597,7 +598,8 @@ export function validateDiscoveryOutput(
     researchResults.map((result) => [result.candidate_id, result]),
   );
   const identityApplicableCandidates = new Set(
-    identityApplicableCandidateIds(stage1, identityVerification),
+    identityApplicableCandidateIdsOverride ??
+      identityApplicableCandidateIds(stage1, identityVerification),
   );
   const discoveryIds = new Set<string>();
   const discoveryCandidates: Record<string, string[]> = {};

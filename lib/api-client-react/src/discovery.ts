@@ -1,6 +1,7 @@
 import { customFetch } from "./custom-fetch";
 
 export const DISCOVERY_ENGINE_VARIANTS = [
+  "v1-frozen",
   "v1",
   "v1-batched-research",
   "v1-luna-research",
@@ -10,7 +11,8 @@ export const DISCOVERY_ENGINE_OPTIONS: ReadonlyArray<{
   value: DiscoveryEngineVariant;
   label: string;
 }> = [
-  { value: "v1", label: "V1 baseline" },
+  { value: "v1-frozen", label: "V1 frozen baseline" },
+  { value: "v1", label: "V1 identity resolution (experimental)" },
   { value: "v1-batched-research", label: "V1 batched research" },
   {
     value: "v1-luna-research",

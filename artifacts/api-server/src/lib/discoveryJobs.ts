@@ -16,6 +16,10 @@ import {
 } from "./discoveryPipeline";
 import { logger } from "./logger";
 import { normalizeDiscoveryValidationDiagnostics } from "./discoveryDiagnostics";
+import {
+  DeepSeekDiscoveryError,
+  createDeepSeekClient,
+} from "./discoveryDeepSeekV1";
 
 export type DiscoveryJob =
   | { status: "pending"; createdAt: number }
@@ -44,7 +48,7 @@ function sanitizeLogText(value: string): string {
     )
     .replace(/\bsk-[a-z0-9_-]+\b/gi, "[secret omitted]")
     .replace(
-      /((?:openai_)?api[_-]?key\s*[:=]\s*["']?)[^\s,"';}]+/gi,
+      /((?:(?:openai|deepseek)_)?api[_-]?key\s*[:=]\s*["']?)[^\s,"';}]+/gi,
       "$1[secret omitted]",
     )
     .replace(
@@ -63,6 +67,9 @@ export function discoveryErrorLogDetails(error: unknown): {
     error instanceof Error && error.cause instanceof Error
       ? error.cause
       : error;
+  if (underlying instanceof DeepSeekDiscoveryError) {
+    return { name: underlying.name, message: underlying.message };
+  }
   if (!(underlying instanceof Error)) {
     return { name: "UnknownError", message: "Non-Error failure value" };
   }
@@ -119,6 +126,7 @@ export function startDiscoveryJob(
   apiKey: string,
   imageDataUrl: string,
   variant: DiscoveryEngineVariant = DEFAULT_DISCOVERY_ENGINE_VARIANT,
+  deepseekApiKey?: string,
 ): { discoveryId: string } | { busy: true } {
   sweep();
   if (pendingCount() >= MAX_CONCURRENT_DISCOVERY_JOBS) return { busy: true };
@@ -133,6 +141,10 @@ export function startDiscoveryJob(
   );
   const cacheIdentifier = imageHash.slice(0, 12);
   const openai = new OpenAI({ apiKey });
+  const deepseek =
+    variant === "v1-deepseek-pro" && deepseekApiKey
+      ? createDeepSeekClient(deepseekApiKey)
+      : undefined;
 
   logger.info(
     {
@@ -146,6 +158,7 @@ export function startDiscoveryJob(
   void getOrComputeDiscovery(cacheKey, async () => {
     const result = await runDiscoveryPipeline(openai, imageDataUrl, {
       variant,
+      ...(deepseek ? { deepseekClient: deepseek } : {}),
     });
     logger.info(
       { cache_identifier: cacheIdentifier, ...result.metrics },

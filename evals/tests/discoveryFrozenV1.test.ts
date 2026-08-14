@@ -304,6 +304,11 @@ test("frozen V1 researches every gated electronics candidate when identity is un
 
   assert.equal(frozen.version, FROZEN_V1_ENGINE_VERSION);
   assert.equal(
+    frozen.metrics.stage1.usage.provider,
+    undefined,
+    "existing frozen metrics shape remains unchanged",
+  );
+  assert.equal(
     frozenResponses.length,
     5,
     "one identity plus four Terra research calls",

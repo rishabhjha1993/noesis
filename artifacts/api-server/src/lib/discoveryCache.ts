@@ -7,6 +7,10 @@ import {
   FROZEN_V1_CACHE_REVISION,
   FROZEN_V1_ENGINE_VERSION,
 } from "./discoveryFrozenV1";
+import {
+  DEEPSEEK_V1_CACHE_REVISION,
+  DEEPSEEK_V1_ENGINE_VERSION,
+} from "./discoveryDeepSeekV1";
 
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 20;
@@ -36,7 +40,9 @@ export function computeDiscoveryCacheKey(
   const contractRevision =
     engineVersion === FROZEN_V1_ENGINE_VERSION
       ? FROZEN_V1_CACHE_REVISION
-      : DISCOVERY_CACHE_CONTRACT_REVISION;
+      : engineVersion === DEEPSEEK_V1_ENGINE_VERSION
+        ? DEEPSEEK_V1_CACHE_REVISION
+        : DISCOVERY_CACHE_CONTRACT_REVISION;
   return {
     cacheKey: `${engineVersion}:${contractRevision}:${imageHash}`,
     imageHash,

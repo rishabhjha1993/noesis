@@ -657,7 +657,7 @@ export async function executeDiscoveryResearchReplay(
       completed.map(({ call }) => call.model_token_cost_usd),
     ),
     total_tool_cost_usd: completed.reduce(
-      (sum, { call }) => sum + call.tool_cost_usd,
+      (sum, { call }) => sum + (call.tool_cost_usd ?? 0),
       0,
     ),
     total_known_cost_usd: sumNullable(
@@ -814,7 +814,7 @@ export async function executeDiscoveryResearchImageAccessExperiment(
         latency_ms: completed.call.usage.latency_ms,
         web_search_calls: completed.call.web_search_calls,
         model_token_cost_usd: completed.call.model_token_cost_usd,
-        tool_cost_usd: completed.call.tool_cost_usd,
+        tool_cost_usd: completed.call.tool_cost_usd ?? 0,
         total_known_cost_usd: completed.call.total_known_cost_usd,
         retained_baseline: {
           status: preparedCandidate.item.retainedStatus,

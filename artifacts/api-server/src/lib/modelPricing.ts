@@ -28,6 +28,15 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPrice>> = {
     cachedInputPerMillion: 0.02,
     outputPerMillion: 1.2,
   },
+  // Official DeepSeek API pricing, verified 2026-08-15. These are the
+  // currently effective rates; a separately published schedule begins after
+  // 2026-08-16 16:00 UTC and is intentionally not applied early.
+  // https://api-docs.deepseek.com/quick_start/pricing
+  "deepseek-v4-pro": {
+    inputPerMillion: 0.435,
+    cachedInputPerMillion: 0.003625,
+    outputPerMillion: 0.87,
+  },
 };
 
 // Official OpenAI pricing: $10 per 1,000 web-search calls.

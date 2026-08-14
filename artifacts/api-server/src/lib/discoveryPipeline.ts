@@ -1,6 +1,9 @@
 import OpenAI from "openai";
 import type { ChatCompletion } from "openai/resources/chat/completions";
-import type { Response } from "openai/resources/responses/responses";
+import type {
+  Response,
+  ResponseCreateParamsNonStreaming,
+} from "openai/resources/responses/responses";
 import {
   DISCOVERY_IDENTITY_VERIFICATION_JSON_SCHEMA,
   DISCOVERY_STAGE1_JSON_SCHEMA,
@@ -53,6 +56,18 @@ import {
   buildFrozenV1Stage3Context,
   frozenV1ApplicableCandidateIds,
 } from "./discoveryFrozenV1";
+import {
+  DEEPSEEK_V1_ENGINE_VERSION,
+  DEEPSEEK_V1_MODEL,
+  DEEPSEEK_V1_REASONING_EFFORT,
+  DeepSeekDiscoveryError,
+  buildDeepSeekV1IdentityRequest,
+  buildDeepSeekV1ResearchRequest,
+  buildDeepSeekV1Stage3Request,
+  createDeepSeekResponse,
+  parseDeepSeekStructuredOutput,
+  type DeepSeekClient,
+} from "./discoveryDeepSeekV1";
 
 export const DISCOVERY_ENGINE_VERSION = "discovery-engine-v1";
 export const DISCOVERY_BATCHED_RESEARCH_ENGINE_VERSION =
@@ -60,7 +75,11 @@ export const DISCOVERY_BATCHED_RESEARCH_ENGINE_VERSION =
 export const DISCOVERY_LUNA_RESEARCH_ENGINE_VERSION =
   "discovery-engine-v1-luna-research";
 export type DiscoveryEngineVariant =
-  "v1" | "v1-frozen" | "v1-batched-research" | "v1-luna-research";
+  | "v1"
+  | "v1-frozen"
+  | "v1-batched-research"
+  | "v1-luna-research"
+  | "v1-deepseek-pro";
 export const DEFAULT_DISCOVERY_ENGINE_VARIANT: DiscoveryEngineVariant = "v1";
 export const DISCOVERY_STAGE1_MODEL = "gpt-5.6-sol";
 export const DISCOVERY_STAGE2_MODEL = "gpt-5.6-terra";
@@ -77,7 +96,7 @@ export const DISCOVERY_REASONING_EFFORT = "medium";
 export interface DiscoveryModelAllocation {
   stage1: string;
   identityVerification: string;
-  candidateResearch: DiscoveryCandidateResearchModel;
+  candidateResearch: string;
   stage3: string;
 }
 
@@ -90,6 +109,14 @@ export function discoveryModelAllocationForVariant(
       identityVerification: FROZEN_V1_STAGE2_MODEL,
       candidateResearch: FROZEN_V1_STAGE2_MODEL,
       stage3: FROZEN_V1_STAGE3_MODEL,
+    };
+  }
+  if (variant === "v1-deepseek-pro") {
+    return {
+      stage1: FROZEN_V1_STAGE1_MODEL,
+      identityVerification: DEEPSEEK_V1_MODEL,
+      candidateResearch: DEEPSEEK_V1_MODEL,
+      stage3: DEEPSEEK_V1_MODEL,
     };
   }
   return {
@@ -113,6 +140,7 @@ export function discoveryEngineVersionForVariant(
   if (variant === "v1-luna-research") {
     return DISCOVERY_LUNA_RESEARCH_ENGINE_VERSION;
   }
+  if (variant === "v1-deepseek-pro") return DEEPSEEK_V1_ENGINE_VERSION;
   return DISCOVERY_ENGINE_VERSION;
 }
 
@@ -123,7 +151,8 @@ export function isDiscoveryEngineVariant(
     value === "v1" ||
     value === "v1-frozen" ||
     value === "v1-batched-research" ||
-    value === "v1-luna-research"
+    value === "v1-luna-research" ||
+    value === "v1-deepseek-pro"
   );
 }
 
@@ -203,6 +232,7 @@ Rules:
 Return only the strict JSON object.`;
 
 export interface DiscoveryUsageMetrics {
+  provider?: "openai" | "deepseek";
   model: string;
   reasoning_effort: string;
   input_tokens: number | null;
@@ -217,7 +247,7 @@ export interface DiscoveryStageMetrics {
   usage: DiscoveryUsageMetrics;
   web_search_calls: number;
   model_token_cost_usd: number | null;
-  tool_cost_usd: number;
+  tool_cost_usd: number | null;
   total_known_cost_usd: number | null;
   /** Backward-compatible alias for total_known_cost_usd. */
   cost_usd: number | null;
@@ -245,7 +275,7 @@ export interface DiscoveryIdentityVerificationMetrics {
   usage: DiscoveryUsageMetrics | null;
   web_search_calls: number;
   model_token_cost_usd: number | null;
-  tool_cost_usd: number;
+  tool_cost_usd: number | null;
   total_known_cost_usd: number | null;
   cost_usd: number | null;
   cost_reason: string | null;
@@ -286,7 +316,7 @@ export interface DiscoveryPipelineMetrics {
     usage: DiscoveryUsageMetrics;
     web_search_calls: number;
     model_token_cost_usd: number | null;
-    tool_cost_usd: number;
+    tool_cost_usd: number | null;
     total_known_cost_usd: number | null;
     cost_usd: number | null;
     identity_verification: DiscoveryIdentityVerificationMetrics;
@@ -305,7 +335,7 @@ export interface DiscoveryPipelineMetrics {
   total_latency_ms: number;
   web_search_calls: number;
   model_token_cost_usd: number | null;
-  tool_cost_usd: number;
+  tool_cost_usd: number | null;
   total_known_cost_usd: number | null;
   /** Backward-compatible alias for total_known_cost_usd. */
   total_cost_usd: number | null;
@@ -336,7 +366,13 @@ export type DiscoveryFailureStage =
 
 export type DiscoveryFailureCategory =
   | "api_error"
+  | "authentication"
+  | "provider_http"
+  | "rate_limit"
   | "timeout"
+  | "structured_output"
+  | "tool_call"
+  | "search_provider"
   | "schema_validation"
   | "malformed_model_output"
   | "source_validation"
@@ -345,6 +381,7 @@ export type DiscoveryFailureCategory =
   | "unknown";
 
 export interface DiscoverySafeUsageMetrics {
+  provider?: "openai" | "deepseek";
   model: string;
   reasoning_effort: string;
   input_tokens: number | null;
@@ -358,7 +395,7 @@ export interface DiscoverySafeStageMetrics {
   usage: DiscoverySafeUsageMetrics;
   web_search_calls: number;
   model_token_cost_usd: number | null;
-  tool_cost_usd: number;
+  tool_cost_usd: number | null;
   total_known_cost_usd: number | null;
   cost_usd: number | null;
   cost_reason: string | null;
@@ -413,7 +450,7 @@ export interface DiscoveryFailureDiagnostic {
       known_usage: DiscoverySafeUsageMetrics | null;
       known_web_search_calls: number;
       known_model_token_cost_usd: number | null;
-      known_tool_cost_usd: number;
+      known_tool_cost_usd: number | null;
       known_total_cost_usd: number | null;
       /** Backward-compatible alias for known_total_cost_usd. */
       known_cost_usd: number | null;
@@ -422,7 +459,7 @@ export interface DiscoveryFailureDiagnostic {
     known_total_tokens: number | null;
     known_web_search_calls: number;
     known_model_token_cost_usd: number | null;
-    known_tool_cost_usd: number;
+    known_tool_cost_usd: number | null;
     known_total_cost_usd: number | null;
   };
 }
@@ -497,8 +534,12 @@ function integer(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function emptyUsage(model: string): DiscoveryUsageMetrics {
+function emptyUsage(
+  model: string,
+  provider?: DiscoveryUsageMetrics["provider"],
+): DiscoveryUsageMetrics {
   return {
+    ...(provider ? { provider } : {}),
     model,
     reasoning_effort: DISCOVERY_REASONING_EFFORT,
     input_tokens: null,
@@ -513,8 +554,10 @@ function emptyUsage(model: string): DiscoveryUsageMetrics {
 function normalizeChatUsage(
   response: ChatCompletion,
   latencyMs: number,
+  provider?: DiscoveryUsageMetrics["provider"],
 ): DiscoveryUsageMetrics {
   return {
+    ...(provider ? { provider } : {}),
     model: response.model,
     reasoning_effort: DISCOVERY_REASONING_EFFORT,
     input_tokens: integer(response.usage?.prompt_tokens),
@@ -533,8 +576,10 @@ function normalizeChatUsage(
 function normalizeResponseUsage(
   response: Response,
   latencyMs: number,
+  provider?: DiscoveryUsageMetrics["provider"],
 ): DiscoveryUsageMetrics {
   return {
+    ...(provider ? { provider } : {}),
     model: response.model,
     reasoning_effort: DISCOVERY_REASONING_EFFORT,
     input_tokens: integer(response.usage?.input_tokens),
@@ -562,7 +607,14 @@ function aggregateUsage(
 ): DiscoveryUsageMetrics {
   if (usages.length === 0) return emptyUsage(model);
   const actualModels = [...new Set(usages.map((usage) => usage.model))];
+  const actualProviders = [
+    ...new Set(usages.map((usage) => usage.provider).filter(Boolean)),
+  ];
   return {
+    ...(actualProviders.length === 1 &&
+    usages.every((usage) => usage.provider === actualProviders[0])
+      ? { provider: actualProviders[0] }
+      : {}),
     model: actualModels.join("+"),
     reasoning_effort: DISCOVERY_REASONING_EFFORT,
     input_tokens: sumNullable(usages.map((usage) => usage.input_tokens)),
@@ -588,9 +640,16 @@ function stageMetrics(
   webSearchCalls = 0,
 ): DiscoveryStageMetrics {
   const modelTokenCost = estimateModelCost(usage);
-  const toolCost = estimateWebSearchToolCost(webSearchCalls);
+  const toolCost =
+    usage.provider === "deepseek" && webSearchCalls > 0
+      ? null
+      : usage.provider === "deepseek"
+        ? 0
+        : estimateWebSearchToolCost(webSearchCalls);
   const totalKnownCost =
-    modelTokenCost.usd === null ? null : modelTokenCost.usd + toolCost;
+    modelTokenCost.usd === null || toolCost === null
+      ? null
+      : modelTokenCost.usd + toolCost;
   return {
     usage,
     web_search_calls: webSearchCalls,
@@ -604,6 +663,7 @@ function stageMetrics(
 
 function safeUsage(usage: DiscoveryUsageMetrics): DiscoverySafeUsageMetrics {
   return {
+    ...(usage.provider ? { provider: usage.provider } : {}),
     model: usage.model,
     reasoning_effort: usage.reasoning_effort,
     input_tokens: usage.input_tokens,
@@ -663,6 +723,7 @@ function errorDetails(error: unknown): {
 export function classifyDiscoveryFailure(
   error: unknown,
 ): DiscoveryFailureCategory {
+  if (error instanceof DeepSeekDiscoveryError) return error.category;
   const { name, message, status, code } = errorDetails(error);
   const searchable = `${name} ${message} ${code}`.toLowerCase();
   if (
@@ -701,8 +762,20 @@ function safeFailureMessage(category: DiscoveryFailureCategory): string {
   switch (category) {
     case "api_error":
       return "The model service returned an API error.";
+    case "authentication":
+      return "The configured model provider rejected authentication.";
+    case "provider_http":
+      return "The configured model provider returned an HTTP error.";
+    case "rate_limit":
+      return "The configured model provider rate limit was reached.";
     case "timeout":
       return "The model service request timed out.";
+    case "structured_output":
+      return "The model provider returned invalid structured output.";
+    case "tool_call":
+      return "The model provider did not complete the required tool call.";
+    case "search_provider":
+      return "The model provider's web search did not complete.";
     case "schema_validation":
       return "A model response failed structured validation.";
     case "malformed_model_output":
@@ -823,9 +896,8 @@ function createFailureDiagnostic(
             (metrics) => metrics.model_token_cost_usd,
           ),
         ),
-        known_tool_cost_usd: state.knownStage2Metrics.reduce(
-          (sum, metrics) => sum + metrics.tool_cost_usd,
-          0,
+        known_tool_cost_usd: sumNullable(
+          state.knownStage2Metrics.map((metrics) => metrics.tool_cost_usd),
         ),
         known_total_cost_usd: sumKnown(
           state.knownStage2Metrics.map(
@@ -847,9 +919,8 @@ function createFailureDiagnostic(
       known_model_token_cost_usd: sumKnown(
         knownMetrics.map((metrics) => metrics.model_token_cost_usd),
       ),
-      known_tool_cost_usd: knownMetrics.reduce(
-        (sum, metrics) => sum + metrics.tool_cost_usd,
-        0,
+      known_tool_cost_usd: sumNullable(
+        knownMetrics.map((metrics) => metrics.tool_cost_usd),
       ),
       known_total_cost_usd: sumKnown(
         knownMetrics.map((metrics) => metrics.total_known_cost_usd),
@@ -1154,6 +1225,62 @@ async function runFrozenV1IdentityVerification(
   };
 }
 
+async function runDeepSeekV1IdentityVerification(
+  deepseek: DeepSeekClient,
+  stage1: DiscoveryStage1,
+  gatedCandidates: DiscoveryCandidate[],
+  state: DiscoveryExecutionState,
+): Promise<DiscoveryIdentityVerificationExecution> {
+  const request = buildDeepSeekV1IdentityRequest(stage1, gatedCandidates);
+  if (!request) return identityNotRun();
+
+  state.stageReached = "identity_verification";
+  state.currentCandidateId = undefined;
+  state.currentQuestionId = undefined;
+  const started = Date.now();
+  const response = await createDeepSeekResponse(deepseek, request, true);
+  const usage = normalizeResponseUsage(
+    response,
+    Date.now() - started,
+    "deepseek",
+  );
+  const metrics = stageMetrics(usage, countWebSearchCalls(response));
+  state.knownStage2Metrics.push(metrics);
+  state.identityVerification = {
+    ...metrics,
+    completed: false,
+    status: null,
+  };
+  const draft = parseDeepSeekStructuredOutput(response.output_text) as {
+    hypothesis_id?: unknown;
+  };
+  if (typeof draft.hypothesis_id !== "string") {
+    throw new DeepSeekDiscoveryError(
+      "structured_output",
+      "DeepSeek identity verification omitted the frozen hypothesis id",
+    );
+  }
+  const result = validateIdentityVerification(
+    stage1,
+    draft,
+    extractValidatedSources(response),
+  );
+  state.identityVerification = {
+    ...metrics,
+    completed: true,
+    status: result.status,
+  };
+  state.lastCompletedStage = "identity_verification";
+  return {
+    result,
+    metrics: {
+      ran: true,
+      status: result.status,
+      ...metrics,
+    },
+  };
+}
+
 async function runSelectiveResearchWithState(
   openai: OpenAI,
   stage1: DiscoveryStage1,
@@ -1303,6 +1430,67 @@ async function runFrozenV1SelectiveResearchWithState(
   };
 }
 
+async function runDeepSeekV1SelectiveResearchWithState(
+  deepseek: DeepSeekClient,
+  stage1: DiscoveryStage1,
+  state: DiscoveryExecutionState,
+): Promise<DiscoveryResearchExecution> {
+  const rawResults: DiscoveryResearchResult[] = [];
+  const calls: DiscoveryResearchCallMetrics[] = [];
+  const gatedCandidates = stage1.candidates.filter(
+    (candidate) => evaluateResearchGate(stage1, candidate).allowed,
+  );
+  const identityVerification = await runDeepSeekV1IdentityVerification(
+    deepseek,
+    stage1,
+    gatedCandidates,
+    state,
+  );
+
+  state.stageReached = "research";
+  for (const candidate of gatedCandidates) {
+    state.currentCandidateId = candidate.id;
+    state.currentQuestionId = candidate.question_id;
+    state.attemptedResearchCalls += 1;
+    const completed = await executeDiscoveryCandidateResearchCall(
+      deepseek,
+      stage1,
+      candidate,
+      buildDeepSeekV1ResearchRequest(
+        stage1,
+        candidate,
+        identityVerification.result,
+      ),
+      (metrics) => state.knownStage2Metrics.push(metrics),
+      "deepseek",
+    );
+    rawResults.push(completed.result);
+    calls.push(completed.call);
+    state.researchCalls.push(completed.call);
+  }
+
+  const results = validateResearchResults(stage1, rawResults);
+  state.currentCandidateId = undefined;
+  state.currentQuestionId = undefined;
+  state.lastCompletedStage = "research";
+  return {
+    results,
+    calls,
+    identityVerification,
+    gatedCandidates: gatedCandidates.length,
+    identityDependentResearchCandidates: 0,
+    identityBlockedCandidateIds: [],
+    candidateResearchCallsAvoidedByIdentityGate: 0,
+    identityIndependentCandidateResearchApiCalls: 0,
+    candidateResearchApiCalls: calls.length,
+    candidateCallsUsingVerifiedIdentity: calls.filter(
+      (call) => call.used_verified_identity_context,
+    ).length,
+    batchMetrics: null,
+    batchInspection: null,
+  };
+}
+
 export function buildDiscoveryCandidateResearchRequest(
   stage1: DiscoveryStage1,
   candidate: DiscoveryCandidate,
@@ -1388,21 +1576,30 @@ export async function runDiscoveryCandidateResearchCall(
 }
 
 async function executeDiscoveryCandidateResearchCall(
-  openai: OpenAI,
+  openai: Pick<OpenAI, "responses">,
   stage1: DiscoveryStage1,
   candidate: DiscoveryCandidate,
-  built:
-    | ReturnType<typeof buildDiscoveryCandidateResearchRequest>
-    | ReturnType<typeof buildFrozenV1ResearchRequest>,
+  built: {
+    usedVerifiedIdentityContext: boolean;
+    request: ResponseCreateParamsNonStreaming;
+  },
   onMetrics?: (metrics: DiscoveryStageMetrics) => void,
+  provider?: DiscoveryUsageMetrics["provider"],
 ): Promise<{
   result: DiscoveryResearchResult;
   call: DiscoveryResearchCallMetrics;
   metrics: DiscoveryStageMetrics;
 }> {
   const started = Date.now();
-  const response = await openai.responses.create(built.request);
-  const usage = normalizeResponseUsage(response, Date.now() - started);
+  const response =
+    provider === "deepseek"
+      ? await createDeepSeekResponse(openai, built.request, true)
+      : await openai.responses.create(built.request);
+  const usage = normalizeResponseUsage(
+    response,
+    Date.now() - started,
+    provider,
+  );
   const metrics = stageMetrics(usage, countWebSearchCalls(response));
   onMetrics?.(metrics);
   const sources = extractValidatedSources(response);
@@ -1670,6 +1867,7 @@ export function createStage3Evidence(
 
 async function runDiscoveryPipelineWithState(
   openai: OpenAI,
+  deepseek: DeepSeekClient | null,
   imageDataUrl: string,
   pipelineStarted: number,
   timestamp: string,
@@ -1678,7 +1876,9 @@ async function runDiscoveryPipelineWithState(
 ): Promise<DiscoveryPipelineResult> {
   const modelAllocation = discoveryModelAllocationForVariant(variant);
   const isFrozenV1 = variant === "v1-frozen";
-  const reasoningEffort = isFrozenV1
+  const isDeepSeekV1 = variant === "v1-deepseek-pro";
+  const usesFrozenV1Semantics = isFrozenV1 || isDeepSeekV1;
+  const reasoningEffort = usesFrozenV1Semantics
     ? FROZEN_V1_REASONING_EFFORT
     : DISCOVERY_REASONING_EFFORT;
   state.stageReached = "stage1";
@@ -1698,7 +1898,9 @@ async function runDiscoveryPipelineWithState(
     messages: [
       {
         role: "system",
-        content: isFrozenV1 ? FROZEN_V1_STAGE1_PROMPT : STAGE1_PROMPT,
+        content: usesFrozenV1Semantics
+          ? FROZEN_V1_STAGE1_PROMPT
+          : STAGE1_PROMPT,
       },
       {
         role: "user",
@@ -1718,6 +1920,7 @@ async function runDiscoveryPipelineWithState(
   const stage1Usage = normalizeChatUsage(
     stage1Response,
     Date.now() - stage1Started,
+    isDeepSeekV1 ? "openai" : undefined,
   );
   const stage1Metrics = stageMetrics(stage1Usage);
   state.stage1 = stage1Metrics;
@@ -1728,7 +1931,7 @@ async function runDiscoveryPipelineWithState(
   let stage1: DiscoveryStage1;
   let stage1Reconciliation: DiscoveryStage1ReconciliationDiagnostics | null =
     null;
-  if (isFrozenV1) {
+  if (usesFrozenV1Semantics) {
     stage1 = DiscoveryStage1Schema.parse(parsedStage1);
   } else {
     const stage1Draft = DiscoveryStage1DraftSchema.parse(parsedStage1);
@@ -1741,14 +1944,16 @@ async function runDiscoveryPipelineWithState(
 
   const research = isFrozenV1
     ? await runFrozenV1SelectiveResearchWithState(openai, stage1, state)
-    : variant === "v1-batched-research"
-      ? await runBatchedSelectiveResearchWithState(openai, stage1, state)
-      : await runSelectiveResearchWithState(
-          openai,
-          stage1,
-          state,
-          modelAllocation.candidateResearch,
-        );
+    : isDeepSeekV1
+      ? await runDeepSeekV1SelectiveResearchWithState(deepseek!, stage1, state)
+      : variant === "v1-batched-research"
+        ? await runBatchedSelectiveResearchWithState(openai, stage1, state)
+        : await runSelectiveResearchWithState(
+            openai,
+            stage1,
+            state,
+            modelAllocation.candidateResearch as DiscoveryCandidateResearchModel,
+          );
   const stage2Usages = research.batchMetrics
     ? [research.batchMetrics.usage]
     : research.calls.map((call) => call.usage);
@@ -1772,9 +1977,8 @@ async function runDiscoveryPipelineWithState(
   const stage2ModelTokenCost = sumNullable(
     stage2Components.map((metrics) => metrics.model_token_cost_usd),
   );
-  const stage2ToolCost = stage2Components.reduce(
-    (sum, metrics) => sum + metrics.tool_cost_usd,
-    0,
+  const stage2ToolCost = sumNullable(
+    stage2Components.map((metrics) => metrics.tool_cost_usd),
   );
   const stage2Cost = sumNullable(
     stage2Components.map((metrics) => metrics.total_known_cost_usd),
@@ -1782,14 +1986,14 @@ async function runDiscoveryPipelineWithState(
 
   state.stageReached = "stage3";
   const stage3Started = Date.now();
-  const frozenStage3Context = isFrozenV1
+  const frozenStage3Context = usesFrozenV1Semantics
     ? buildFrozenV1Stage3Context(
         stage1,
         research.results,
         research.identityVerification.result,
       )
     : null;
-  const stage3Evidence = isFrozenV1
+  const stage3Evidence = usesFrozenV1Semantics
     ? {
         research_results: frozenStage3Context!.researchResults,
         identity_verification: frozenStage3Context!.identityContext,
@@ -1799,7 +2003,7 @@ async function runDiscoveryPipelineWithState(
         research.results,
         research.identityVerification.result,
       );
-  const stage3Grounding = isFrozenV1
+  const stage3Grounding = usesFrozenV1Semantics
     ? frozenStage3Context!.grounding
     : {
         ...stage1,
@@ -1812,51 +2016,71 @@ async function runDiscoveryPipelineWithState(
               )
             : [],
       };
-  const stage3Response = await openai.chat.completions.create({
-    model: modelAllocation.stage3,
-    reasoning_effort: reasoningEffort,
-    max_completion_tokens: 10000,
-    response_format: {
-      type: "json_schema",
-      json_schema: DISCOVERY_STAGE3_JSON_SCHEMA as unknown as {
-        name: string;
-        strict: boolean;
-        schema: Record<string, unknown>;
-      },
-    },
-    messages: [
-      {
-        role: "system",
-        content: isFrozenV1 ? FROZEN_V1_STAGE3_PROMPT : STAGE3_PROMPT,
-      },
-      {
-        role: "user",
-        content: [
-          "STAGE 1 GROUNDING:",
-          JSON.stringify(stage3Grounding),
-          "",
-          "DETERMINISTIC CALCULATIONS:",
-          "[]",
-          "",
-          "VALIDATED RESEARCH RESULTS:",
-          JSON.stringify(stage3Evidence.research_results),
-          "",
-          "IDENTITY VERIFICATION RESULT:",
-          JSON.stringify(stage3Evidence.identity_verification),
-        ].join("\n"),
-      },
-    ],
-  });
-  const stage3Usage = normalizeChatUsage(
-    stage3Response,
-    Date.now() - stage3Started,
-  );
+  const stage3Response = isDeepSeekV1
+    ? await createDeepSeekResponse(
+        deepseek!,
+        buildDeepSeekV1Stage3Request(
+          stage1,
+          research.results,
+          research.identityVerification.result,
+        ),
+        false,
+      )
+    : await openai.chat.completions.create({
+        model: modelAllocation.stage3,
+        reasoning_effort: reasoningEffort,
+        max_completion_tokens: 10000,
+        response_format: {
+          type: "json_schema",
+          json_schema: DISCOVERY_STAGE3_JSON_SCHEMA as unknown as {
+            name: string;
+            strict: boolean;
+            schema: Record<string, unknown>;
+          },
+        },
+        messages: [
+          {
+            role: "system",
+            content: isFrozenV1 ? FROZEN_V1_STAGE3_PROMPT : STAGE3_PROMPT,
+          },
+          {
+            role: "user",
+            content: [
+              "STAGE 1 GROUNDING:",
+              JSON.stringify(stage3Grounding),
+              "",
+              "DETERMINISTIC CALCULATIONS:",
+              "[]",
+              "",
+              "VALIDATED RESEARCH RESULTS:",
+              JSON.stringify(stage3Evidence.research_results),
+              "",
+              "IDENTITY VERIFICATION RESULT:",
+              JSON.stringify(stage3Evidence.identity_verification),
+            ].join("\n"),
+          },
+        ],
+      });
+  const stage3Usage = isDeepSeekV1
+    ? normalizeResponseUsage(
+        stage3Response as Response,
+        Date.now() - stage3Started,
+        "deepseek",
+      )
+    : normalizeChatUsage(
+        stage3Response as ChatCompletion,
+        Date.now() - stage3Started,
+      );
   const stage3Metrics = stageMetrics(stage3Usage);
   state.stage3 = stage3Metrics;
-  const stage3Text = stage3Response.choices[0]?.message.content;
+  const stage3Text = isDeepSeekV1
+    ? (stage3Response as Response).output_text
+    : (stage3Response as ChatCompletion).choices[0]?.message.content;
   if (!stage3Text)
     throw new Error("Discovery Stage 3 returned an empty response");
-  const parsedStage3 = JSON.parse(stage3Text);
+  const parsedStage3 = isDeepSeekV1
+    ? parseDeepSeekStructuredOutput(stage3Text)
+    : JSON.parse(stage3Text);
   state.lastCompletedStage = "stage3";
   state.stageReached = "validation";
   const validated = validateDiscoveryOutput(
@@ -1864,7 +2088,7 @@ async function runDiscoveryPipelineWithState(
     research.results,
     parsedStage3,
     research.identityVerification.result,
-    isFrozenV1
+    usesFrozenV1Semantics
       ? frozenV1ApplicableCandidateIds(
           stage1,
           research.identityVerification.result,
@@ -1877,8 +2101,11 @@ async function runDiscoveryPipelineWithState(
     stage2ModelTokenCost,
     stage3Metrics.model_token_cost_usd,
   ]);
-  const totalToolCost =
-    stage1Metrics.tool_cost_usd + stage2ToolCost + stage3Metrics.tool_cost_usd;
+  const totalToolCost = sumNullable([
+    stage1Metrics.tool_cost_usd,
+    stage2ToolCost,
+    stage3Metrics.tool_cost_usd,
+  ]);
   const totalKnownCost = sumNullable([
     stage1Metrics.total_known_cost_usd,
     stage2Cost,
@@ -1932,7 +2159,7 @@ async function runDiscoveryPipelineWithState(
         total_known_cost_usd: stage2Cost,
         cost_usd: stage2Cost,
         identity_verification: research.identityVerification.metrics,
-        ...(!isFrozenV1
+        ...(!usesFrozenV1Semantics
           ? {
               identity_dependent_research_candidates:
                 research.identityDependentResearchCandidates,
@@ -1974,23 +2201,30 @@ async function runDiscoveryPipelineWithState(
 export async function runDiscoveryPipeline(
   openai: OpenAI,
   imageDataUrl: string,
-  options: { variant?: DiscoveryEngineVariant } = {},
+  options: {
+    variant?: DiscoveryEngineVariant;
+    deepseekClient?: DeepSeekClient;
+  } = {},
 ): Promise<DiscoveryPipelineResult> {
   const pipelineStarted = Date.now();
   const timestamp = new Date().toISOString();
   const variant = options.variant ?? DEFAULT_DISCOVERY_ENGINE_VARIANT;
+  if (variant === "v1-deepseek-pro" && !options.deepseekClient) {
+    throw new Error("DeepSeek client is required for v1-deepseek-pro");
+  }
   const engineVersion = discoveryEngineVersionForVariant(variant);
   const modelAllocation = discoveryModelAllocationForVariant(variant);
   const state = createExecutionState(
     pipelineStarted,
     engineVersion,
     modelAllocation.candidateResearch,
-    variant !== "v1-frozen",
+    variant !== "v1-frozen" && variant !== "v1-deepseek-pro",
   );
 
   try {
     return await runDiscoveryPipelineWithState(
       openai,
+      options.deepseekClient ?? null,
       imageDataUrl,
       pipelineStarted,
       timestamp,

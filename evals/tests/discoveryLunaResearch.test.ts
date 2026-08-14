@@ -298,6 +298,7 @@ test("lab selector exposes frozen V1 and C1 without changing the API default", (
     "v1",
     "v1-batched-research",
     "v1-luna-research",
+    "v1-deepseek-pro",
   ]);
   assert.deepEqual(
     DISCOVERY_ENGINE_OPTIONS.map((option) => option.value),
@@ -313,6 +314,7 @@ test("lab selector exposes frozen V1 and C1 without changing the API default", (
   assert.equal(isDiscoveryEngineVariant("v1-frozen"), true);
   assert.equal(isDiscoveryEngineVariant("v1"), true);
   assert.equal(isDiscoveryEngineVariant("v1-batched-research"), true);
+  assert.equal(isDiscoveryEngineVariant("v1-deepseek-pro"), true);
   assert.equal(isDiscoveryEngineVariant("unknown"), false);
 });
 

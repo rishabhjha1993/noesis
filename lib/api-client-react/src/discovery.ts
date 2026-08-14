@@ -5,6 +5,7 @@ export const DISCOVERY_ENGINE_VARIANTS = [
   "v1",
   "v1-batched-research",
   "v1-luna-research",
+  "v1-deepseek-pro",
 ] as const;
 export type DiscoveryEngineVariant = (typeof DISCOVERY_ENGINE_VARIANTS)[number];
 export const DISCOVERY_ENGINE_OPTIONS: ReadonlyArray<{
@@ -17,6 +18,10 @@ export const DISCOVERY_ENGINE_OPTIONS: ReadonlyArray<{
   {
     value: "v1-luna-research",
     label: "V1 Luna candidate research (C1)",
+  },
+  {
+    value: "v1-deepseek-pro",
+    label: "V1 DeepSeek Pro (experimental)",
   },
 ];
 
@@ -115,6 +120,7 @@ export interface Discovery {
 }
 
 export interface DiscoveryUsageMetrics {
+  provider?: "openai" | "deepseek";
   model: string;
   reasoning_effort: string;
   input_tokens: number | null;
@@ -129,7 +135,7 @@ export interface DiscoveryStageMetrics {
   usage: DiscoveryUsageMetrics;
   web_search_calls?: number;
   model_token_cost_usd?: number | null;
-  tool_cost_usd?: number;
+  tool_cost_usd?: number | null;
   total_known_cost_usd?: number | null;
   cost_usd: number | null;
   cost_reason: string | null;
@@ -148,7 +154,7 @@ export interface DiscoveryIdentityVerificationMetrics {
   usage: DiscoveryUsageMetrics | null;
   web_search_calls?: number;
   model_token_cost_usd?: number | null;
-  tool_cost_usd?: number;
+  tool_cost_usd?: number | null;
   total_known_cost_usd?: number | null;
   cost_usd: number | null;
   cost_reason: string | null;
@@ -258,7 +264,7 @@ export interface DiscoveryRunResult {
       usage: DiscoveryUsageMetrics;
       web_search_calls?: number;
       model_token_cost_usd?: number | null;
-      tool_cost_usd?: number;
+      tool_cost_usd?: number | null;
       total_known_cost_usd?: number | null;
       cost_usd: number | null;
       identity_verification: DiscoveryIdentityVerificationMetrics;
@@ -279,7 +285,7 @@ export interface DiscoveryRunResult {
     total_latency_ms: number;
     web_search_calls?: number;
     model_token_cost_usd?: number | null;
-    tool_cost_usd?: number;
+    tool_cost_usd?: number | null;
     total_known_cost_usd?: number | null;
     total_cost_usd: number | null;
     cost_per_successful_analysis_usd: number | null;
@@ -312,7 +318,7 @@ export interface DiscoverySafeStageMetrics {
   usage: DiscoverySafeUsageMetrics;
   web_search_calls?: number;
   model_token_cost_usd?: number | null;
-  tool_cost_usd?: number;
+  tool_cost_usd?: number | null;
   total_known_cost_usd?: number | null;
   cost_usd: number | null;
   cost_reason: string | null;
@@ -326,7 +332,13 @@ export interface DiscoveryFailureDiagnostic {
     "none" | "stage1" | "identity_verification" | "research" | "stage3";
   category:
     | "api_error"
+    | "authentication"
+    | "provider_http"
+    | "rate_limit"
     | "timeout"
+    | "structured_output"
+    | "tool_call"
+    | "search_provider"
     | "schema_validation"
     | "malformed_model_output"
     | "source_validation"
@@ -376,7 +388,7 @@ export interface DiscoveryFailureDiagnostic {
       known_usage: DiscoverySafeUsageMetrics | null;
       known_web_search_calls?: number;
       known_model_token_cost_usd?: number | null;
-      known_tool_cost_usd?: number;
+      known_tool_cost_usd?: number | null;
       known_total_cost_usd?: number | null;
       known_cost_usd: number | null;
     };
@@ -384,7 +396,7 @@ export interface DiscoveryFailureDiagnostic {
     known_total_tokens: number | null;
     known_web_search_calls?: number;
     known_model_token_cost_usd?: number | null;
-    known_tool_cost_usd?: number;
+    known_tool_cost_usd?: number | null;
     known_total_cost_usd: number | null;
   };
 }

@@ -76,8 +76,18 @@ router.post("/discovery", analysisRateLimit, (req, res) => {
     res.status(502).json({ error: "Discovery service is not configured" });
     return;
   }
+  const deepseekApiKey = process.env["DEEPSEEK_API_KEY"];
+  if (engineVariant === "v1-deepseek-pro" && !deepseekApiKey) {
+    res.status(502).json({ error: "Discovery service is not configured" });
+    return;
+  }
 
-  const started = startDiscoveryJob(apiKey, image_data_url, engineVariant);
+  const started = startDiscoveryJob(
+    apiKey,
+    image_data_url,
+    engineVariant,
+    deepseekApiKey,
+  );
   if ("busy" in started) {
     res.status(503).json({
       error: "The discovery lab is busy. Please try again in a moment.",

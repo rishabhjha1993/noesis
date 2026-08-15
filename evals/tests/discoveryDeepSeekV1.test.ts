@@ -7,6 +7,7 @@ import {
 } from "../../artifacts/api-server/src/lib/discoveryContracts";
 import {
   DEEPSEEK_API_BASE_URL,
+  DEEPSEEK_IDENTITY_SEMANTIC_REPAIR_INSTRUCTIONS,
   DEEPSEEK_V1_CACHE_REVISION,
   DEEPSEEK_V1_EFFECTIVE_REASONING_EFFORT,
   DEEPSEEK_V1_ENGINE_VERSION,
@@ -255,6 +256,73 @@ function successfulDeepSeekClient(requests: CapturedRequest[]) {
   >["deepseekClient"];
 }
 
+function unresolvedIdentity(
+  status: "unverified" | "conflicted",
+  withCanonicalIdentity = false,
+) {
+  return {
+    status,
+    hypothesis_id: "ih1",
+    canonical_identity: withCanonicalIdentity
+      ? "Tentative engineered landscape"
+      : null,
+    identity_type: withCanonicalIdentity ? ("place" as const) : null,
+    location: withCanonicalIdentity ? "Tentative region" : null,
+    verification_basis:
+      status === "unverified"
+        ? "The exact place could not be verified."
+        : "Trustworthy sources support conflicting exact identities.",
+    confidence: status === "unverified" ? 0.2 : 0.4,
+    match_evidence: [
+      {
+        basis: "generic_visual_similarity" as const,
+        detail: "Several landscapes share this generic configuration.",
+      },
+    ],
+  };
+}
+
+async function runDeepSeekIdentityScenario(
+  initialIdentity: unknown,
+  repairedIdentity?: unknown,
+) {
+  const requests: CapturedRequest[] = [];
+  const client = {
+    responses: {
+      create: async (request: CapturedRequest) => {
+        requests.push(request);
+        const formatName = request.text?.format?.name;
+        if (formatName === "noesis_discovery_identity_verification") {
+          return deepSeekResponse(JSON.stringify(initialIdentity), {
+            search: true,
+            sourceUrl: "https://example.com/identity",
+          });
+        }
+        if (formatName === "noesis_discovery_identity_semantic_repair") {
+          return deepSeekResponse(JSON.stringify(repairedIdentity));
+        }
+        if (formatName === "noesis_discovery_stage3") {
+          return deepSeekResponse(JSON.stringify({ discoveries: [] }));
+        }
+        return deepSeekResponse(
+          "INSUFFICIENT: Exact identity is unavailable.",
+          {
+            search: true,
+          },
+        );
+      },
+    },
+  } as unknown as NonNullable<
+    Parameters<typeof runDiscoveryPipeline>[2]
+  >["deepseekClient"];
+  const result = await runDiscoveryPipeline(
+    solClient([]),
+    "data:image/png;base64,YWJj",
+    { variant: "v1-deepseek-pro", deepseekClient: client },
+  );
+  return { requests, result };
+}
+
 test("DeepSeek challenger allocation, identity, cache, and lab option are isolated", () => {
   assert.equal(DEEPSEEK_API_BASE_URL, "https://api.deepseek.com");
   assert.equal(DEEPSEEK_V1_REASONING_EFFORT, "medium");
@@ -396,8 +464,231 @@ test("mocked end-to-end challenger is Sol then DeepSeek identity, per-candidate 
   );
   assert.equal(result.discoveries.length, 1);
   assert.equal(result.metrics.stage2.tool_cost_usd, null);
-  assert.equal(result.metrics.total_known_cost_usd, null);
+  assert.equal(
+    result.metrics.total_known_cost_usd,
+    result.metrics.model_token_cost_usd,
+  );
   assert.ok((result.metrics.stage3.model_token_cost_usd ?? 0) > 0);
+  assert.equal(
+    result.metrics.stage2.identity_verification.semantic_repair_attempted,
+    undefined,
+  );
+});
+
+test("valid verified, unverified, and conflicted DeepSeek identities do not repair", async () => {
+  for (const identity of [
+    verifiedIdentity,
+    unresolvedIdentity("unverified"),
+    unresolvedIdentity("conflicted"),
+  ]) {
+    const { requests, result } = await runDeepSeekIdentityScenario(identity);
+    assert.equal(
+      requests.filter(
+        (request) =>
+          request.text?.format?.name ===
+          "noesis_discovery_identity_semantic_repair",
+      ).length,
+      0,
+    );
+    assert.equal(
+      result.metrics.stage2.identity_verification.semantic_repair_attempted,
+      undefined,
+    );
+    assert.equal(
+      result.inspection.identity_verification?.status,
+      identity.status,
+    );
+  }
+});
+
+test("unverified and conflicted canonical contradictions receive one narrow semantic repair", async () => {
+  for (const status of ["unverified", "conflicted"] as const) {
+    const initial = unresolvedIdentity(status, true);
+    const repaired = {
+      ...initial,
+      canonical_identity: null,
+      identity_type: null,
+      location: null,
+    };
+    const { requests, result } = await runDeepSeekIdentityScenario(
+      initial,
+      repaired,
+    );
+    const repairs = requests.filter(
+      (request) =>
+        request.text?.format?.name ===
+        "noesis_discovery_identity_semantic_repair",
+    );
+    assert.equal(repairs.length, 1);
+    assert.equal(repairs[0]?.tools, undefined);
+    assert.equal(
+      repairs[0]?.instructions,
+      DEEPSEEK_IDENTITY_SEMANTIC_REPAIR_INSTRUCTIONS,
+    );
+    assert.deepEqual(repairs[0]?.text?.format?.schema, {
+      ...FROZEN_V1_IDENTITY_VERIFICATION_JSON_SCHEMA.schema,
+      properties: {
+        ...FROZEN_V1_IDENTITY_VERIFICATION_JSON_SCHEMA.schema.properties,
+        status: { type: "string", enum: [status] },
+        canonical_identity: { type: "null" },
+        identity_type: { type: "null" },
+        location: { type: "null" },
+      },
+    });
+    assert.equal(result.inspection.identity_verification?.status, status);
+    assert.equal(
+      result.inspection.identity_verification?.canonical_identity,
+      null,
+    );
+    assert.equal(result.inspection.identity_verification?.identity_type, null);
+    assert.equal(result.inspection.identity_verification?.location, null);
+    assert.deepEqual(result.inspection.identity_verification?.sources, [
+      {
+        title: "Trusted hosted-search source",
+        url: "https://example.com/identity",
+      },
+    ]);
+    const identityMetrics = result.metrics.stage2.identity_verification;
+    assert.equal(identityMetrics.semantic_repair_attempted, true);
+    assert.equal(identityMetrics.semantic_repair_succeeded, true);
+    assert.equal(identityMetrics.usage?.input_tokens, 200);
+    assert.equal(identityMetrics.usage?.output_tokens, 80);
+    assert.equal(identityMetrics.usage?.total_tokens, 280);
+    assert.equal(identityMetrics.web_search_calls, 1);
+    assert.equal(identityMetrics.tool_cost_usd, null);
+    assert.ok((identityMetrics.model_token_cost_usd ?? 0) > 0);
+    assert.equal(
+      identityMetrics.total_known_cost_usd,
+      identityMetrics.model_token_cost_usd,
+    );
+  }
+});
+
+test("DeepSeek identity repair cannot promote status or rewrite substantive evidence", async () => {
+  const initial = unresolvedIdentity("unverified", true);
+  for (const invalidRepair of [
+    {
+      ...initial,
+      status: "verified",
+    },
+    {
+      ...initial,
+      canonical_identity: null,
+      identity_type: null,
+      location: null,
+      verification_basis: "A different substantive conclusion was invented.",
+    },
+  ]) {
+    await assert.rejects(
+      () => runDeepSeekIdentityScenario(initial, invalidRepair),
+      (error: unknown) => {
+        assert.ok(error instanceof DiscoveryPipelineError);
+        assert.equal(error.diagnostic.failed_stage, "identity_verification");
+        assert.equal(error.diagnostic.category, "structured_output");
+        assert.equal(
+          error.diagnostic.partial_metrics.identity_verification
+            ?.semantic_repair_attempted,
+          true,
+        );
+        assert.equal(
+          error.diagnostic.partial_metrics.identity_verification
+            ?.semantic_repair_succeeded,
+          false,
+        );
+        assert.doesNotMatch(
+          JSON.stringify(error.diagnostic),
+          /ORIGINAL FROZEN|PREVIOUS STRUCTURED|Tentative engineered landscape/,
+        );
+        return true;
+      },
+    );
+  }
+});
+
+test("a still-contradictory repair fails after one attempt", async () => {
+  const initial = unresolvedIdentity("conflicted", true);
+  let calls = 0;
+  await assert.rejects(
+    async () => {
+      const client = {
+        responses: {
+          create: async (request: CapturedRequest) => {
+            calls += 1;
+            if (
+              request.text?.format?.name ===
+              "noesis_discovery_identity_verification"
+            ) {
+              return deepSeekResponse(JSON.stringify(initial), {
+                search: true,
+              });
+            }
+            return deepSeekResponse(JSON.stringify(initial));
+          },
+        },
+      } as unknown as NonNullable<
+        Parameters<typeof runDiscoveryPipeline>[2]
+      >["deepseekClient"];
+      await runDiscoveryPipeline(solClient([]), "data:image/png;base64,YWJj", {
+        variant: "v1-deepseek-pro",
+        deepseekClient: client,
+      });
+    },
+    (error: unknown) => {
+      assert.ok(error instanceof DiscoveryPipelineError);
+      assert.equal(error.diagnostic.failed_stage, "identity_verification");
+      assert.equal(error.diagnostic.category, "structured_output");
+      assert.equal(calls, 2);
+      return true;
+    },
+  );
+});
+
+test("unrelated DeepSeek identity schema failures do not trigger semantic repair", async () => {
+  for (const scenario of [
+    {
+      invalid: { ...unresolvedIdentity("unverified", true), confidence: 2 },
+      expectedCategory: "schema_validation",
+    },
+    {
+      invalid: {
+        ...unresolvedIdentity("conflicted", true),
+        hypothesis_id: "unknown-hypothesis",
+      },
+      expectedCategory: "internal_error",
+    },
+  ]) {
+    let calls = 0;
+    const client = {
+      responses: {
+        create: async () => {
+          calls += 1;
+          return deepSeekResponse(JSON.stringify(scenario.invalid), {
+            search: true,
+          });
+        },
+      },
+    } as unknown as NonNullable<
+      Parameters<typeof runDiscoveryPipeline>[2]
+    >["deepseekClient"];
+    await assert.rejects(
+      () =>
+        runDiscoveryPipeline(solClient([]), "data:image/png;base64,YWJj", {
+          variant: "v1-deepseek-pro",
+          deepseekClient: client,
+        }),
+      (error: unknown) => {
+        assert.ok(error instanceof DiscoveryPipelineError);
+        assert.equal(error.diagnostic.category, scenario.expectedCategory);
+        assert.equal(calls, 1);
+        assert.equal(
+          error.diagnostic.partial_metrics.identity_verification
+            ?.semantic_repair_attempted,
+          undefined,
+        );
+        return true;
+      },
+    );
+  }
 });
 
 test("unresolved identity never suppresses frozen gated DeepSeek research", async () => {

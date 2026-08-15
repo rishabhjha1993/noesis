@@ -454,7 +454,8 @@ export function DiscoveryLab() {
                     · web search{" "}
                     {result.metrics.stage2.web_search_calls ?? "n/a"}
                     {" calls / "}
-                    {money(result.metrics.stage2.tool_cost_usd ?? null)} · total{" "}
+                    {money(result.metrics.stage2.tool_cost_usd ?? null)} · known
+                    subtotal{" "}
                     {money(
                       result.metrics.stage2.total_known_cost_usd ??
                         result.metrics.stage2.cost_usd,
@@ -534,7 +535,8 @@ export function DiscoveryLab() {
                           · web search{" "}
                           {researchMetrics.web_search_calls ?? "n/a"}
                           {" calls / "}
-                          {money(researchMetrics.tool_cost_usd ?? null)} · total{" "}
+                          {money(researchMetrics.tool_cost_usd ?? null)} · known
+                          subtotal{" "}
                           {money(
                             researchMetrics.total_known_cost_usd ??
                               researchMetrics.cost_usd,
@@ -560,7 +562,7 @@ export function DiscoveryLab() {
                     / {money(result.metrics.tool_cost_usd ?? null)}
                   </span>
                   <span>
-                    Total known cost:{" "}
+                    Known cost subtotal:{" "}
                     {money(
                       result.metrics.total_known_cost_usd ??
                         result.metrics.total_cost_usd,

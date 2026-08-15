@@ -61,11 +61,14 @@ import {
   DEEPSEEK_V1_MODEL,
   DEEPSEEK_V1_REASONING_EFFORT,
   DeepSeekDiscoveryError,
+  buildDeepSeekIdentitySemanticRepairRequest,
   buildDeepSeekV1IdentityRequest,
   buildDeepSeekV1ResearchRequest,
   buildDeepSeekV1Stage3Request,
   createDeepSeekResponse,
   parseDeepSeekStructuredOutput,
+  preservesDeepSeekIdentityRepairConclusion,
+  recoverableDeepSeekIdentityContradiction,
   type DeepSeekClient,
 } from "./discoveryDeepSeekV1";
 
@@ -248,6 +251,7 @@ export interface DiscoveryStageMetrics {
   web_search_calls: number;
   model_token_cost_usd: number | null;
   tool_cost_usd: number | null;
+  /** Sum of known components; not an all-in cost when tool_cost_usd is null. */
   total_known_cost_usd: number | null;
   /** Backward-compatible alias for total_known_cost_usd. */
   cost_usd: number | null;
@@ -279,6 +283,8 @@ export interface DiscoveryIdentityVerificationMetrics {
   total_known_cost_usd: number | null;
   cost_usd: number | null;
   cost_reason: string | null;
+  semantic_repair_attempted?: boolean;
+  semantic_repair_succeeded?: boolean;
 }
 
 export interface DiscoveryBatchResearchMetrics extends DiscoveryStageMetrics {
@@ -438,6 +444,8 @@ export interface DiscoveryFailureDiagnostic {
       | (DiscoverySafeStageMetrics & {
           completed: boolean;
           status: "verified" | "unverified" | "conflicted" | null;
+          semantic_repair_attempted?: boolean;
+          semantic_repair_succeeded?: boolean;
         })
       | null;
     research: {
@@ -479,6 +487,8 @@ interface DiscoveryExecutionState {
     | (DiscoveryStageMetrics & {
         completed: boolean;
         status: "verified" | "unverified" | "conflicted" | null;
+        semantic_repair_attempted?: boolean;
+        semantic_repair_succeeded?: boolean;
       })
     | null;
   knownStage2Metrics: DiscoveryStageMetrics[];
@@ -647,9 +657,7 @@ function stageMetrics(
         ? 0
         : estimateWebSearchToolCost(webSearchCalls);
   const totalKnownCost =
-    modelTokenCost.usd === null || toolCost === null
-      ? null
-      : modelTokenCost.usd + toolCost;
+    modelTokenCost.usd === null ? null : modelTokenCost.usd + (toolCost ?? 0);
   return {
     usage,
     web_search_calls: webSearchCalls,
@@ -870,6 +878,15 @@ function createFailureDiagnostic(
             ...safeStage(state.identityVerification),
             completed: state.identityVerification.completed,
             status: state.identityVerification.status,
+            ...(state.identityVerification.semantic_repair_attempted !==
+            undefined
+              ? {
+                  semantic_repair_attempted:
+                    state.identityVerification.semantic_repair_attempted,
+                  semantic_repair_succeeded:
+                    state.identityVerification.semantic_repair_succeeded,
+                }
+              : {}),
           }
         : null,
       research: {
@@ -1244,10 +1261,10 @@ async function runDeepSeekV1IdentityVerification(
     Date.now() - started,
     "deepseek",
   );
-  const metrics = stageMetrics(usage, countWebSearchCalls(response));
-  state.knownStage2Metrics.push(metrics);
+  const initialMetrics = stageMetrics(usage, countWebSearchCalls(response));
+  state.knownStage2Metrics.push(initialMetrics);
   state.identityVerification = {
-    ...metrics,
+    ...initialMetrics,
     completed: false,
     status: null,
   };
@@ -1260,15 +1277,76 @@ async function runDeepSeekV1IdentityVerification(
       "DeepSeek identity verification omitted the frozen hypothesis id",
     );
   }
-  const result = validateIdentityVerification(
-    stage1,
-    draft,
-    extractValidatedSources(response),
-  );
+  const sources = extractValidatedSources(response);
+  let result: DiscoveryIdentityVerification;
+  let metrics = initialMetrics;
+  let semanticRepairAttempted = false;
+  let semanticRepairSucceeded = false;
+  try {
+    result = validateIdentityVerification(stage1, draft, sources);
+  } catch (error) {
+    const recoverable = recoverableDeepSeekIdentityContradiction(error, draft);
+    if (!recoverable) throw error;
+
+    semanticRepairAttempted = true;
+    state.identityVerification = {
+      ...initialMetrics,
+      completed: false,
+      status: recoverable.status,
+      semantic_repair_attempted: true,
+      semantic_repair_succeeded: false,
+    };
+    const repairStarted = Date.now();
+    const repairResponse = await createDeepSeekResponse(
+      deepseek,
+      buildDeepSeekIdentitySemanticRepairRequest(recoverable),
+      false,
+    );
+    const repairUsage = normalizeResponseUsage(
+      repairResponse,
+      Date.now() - repairStarted,
+      "deepseek",
+    );
+    const repairMetrics = stageMetrics(
+      repairUsage,
+      countWebSearchCalls(repairResponse),
+    );
+    state.knownStage2Metrics.push(repairMetrics);
+    metrics = stageMetrics(
+      aggregateUsage(DEEPSEEK_V1_MODEL, [usage, repairUsage]),
+      initialMetrics.web_search_calls + repairMetrics.web_search_calls,
+    );
+    state.identityVerification = {
+      ...metrics,
+      completed: false,
+      status: recoverable.status,
+      semantic_repair_attempted: true,
+      semantic_repair_succeeded: false,
+    };
+    const repairedDraft = parseDeepSeekStructuredOutput(
+      repairResponse.output_text,
+    );
+    if (
+      !preservesDeepSeekIdentityRepairConclusion(recoverable, repairedDraft)
+    ) {
+      throw new DeepSeekDiscoveryError(
+        "structured_output",
+        "DeepSeek identity semantic repair changed the verification conclusion",
+      );
+    }
+    result = validateIdentityVerification(stage1, repairedDraft, sources);
+    semanticRepairSucceeded = true;
+  }
   state.identityVerification = {
     ...metrics,
     completed: true,
     status: result.status,
+    ...(semanticRepairAttempted
+      ? {
+          semantic_repair_attempted: true,
+          semantic_repair_succeeded: semanticRepairSucceeded,
+        }
+      : {}),
   };
   state.lastCompletedStage = "identity_verification";
   return {
@@ -1277,6 +1355,12 @@ async function runDeepSeekV1IdentityVerification(
       ran: true,
       status: result.status,
       ...metrics,
+      ...(semanticRepairAttempted
+        ? {
+            semantic_repair_attempted: true,
+            semantic_repair_succeeded: semanticRepairSucceeded,
+          }
+        : {}),
     },
   };
 }

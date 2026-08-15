@@ -1,10 +1,12 @@
 import OpenAI from "openai";
+import { ZodError } from "zod";
 import type {
   Response,
   ResponseCreateParamsNonStreaming,
 } from "openai/resources/responses/responses";
 import {
   DISCOVERY_STAGE3_JSON_SCHEMA,
+  DiscoveryIdentityVerificationDraftSchema,
   type DiscoveryCandidate,
   type DiscoveryIdentityVerification,
   type DiscoveryResearchResult,
@@ -36,7 +38,13 @@ export const DEEPSEEK_API_BASE_URL = "https://api.deepseek.com";
 export const DEEPSEEK_V1_REASONING_EFFORT = FROZEN_V1_REASONING_EFFORT;
 export const DEEPSEEK_V1_EFFECTIVE_REASONING_EFFORT = "high";
 
+export const DEEPSEEK_IDENTITY_SEMANTIC_REPAIR_INSTRUCTIONS = `Your previous identity-verification response violated one output invariant.
+
+Preserve the substantive verification conclusion exactly. Preserve status, hypothesis_id, verification_basis, confidence, and match_evidence exactly. Do not add, remove, or reinterpret evidence. If status is unverified or conflicted, canonical_identity, identity_type, and location must all be null. Do not change status to verified. Return only the corrected strict JSON object.`;
+
 export type DeepSeekClient = Pick<OpenAI, "responses">;
+
+type DeepSeekIdentityDraft = Omit<DiscoveryIdentityVerification, "sources">;
 
 export type DeepSeekFailureCategory =
   | "authentication"
@@ -83,6 +91,78 @@ export function buildDeepSeekV1IdentityRequest(
     instructions: FROZEN_V1_IDENTITY_VERIFICATION_INSTRUCTIONS,
     input: frozenInput.input,
   };
+}
+
+export function recoverableDeepSeekIdentityContradiction(
+  validationError: unknown,
+  input: unknown,
+): DeepSeekIdentityDraft | null {
+  if (
+    !(validationError instanceof ZodError) ||
+    validationError.issues.length !== 1 ||
+    validationError.issues[0]?.code !== "custom" ||
+    validationError.issues[0]?.message !==
+      "Unverified or conflicted identity cannot expose a canonical identity"
+  ) {
+    return null;
+  }
+  const parsed = DiscoveryIdentityVerificationDraftSchema.safeParse(input);
+  if (!parsed.success || parsed.data.status === "verified") return null;
+  return parsed.data.canonical_identity !== null ||
+    parsed.data.identity_type !== null ||
+    parsed.data.location !== null
+    ? parsed.data
+    : null;
+}
+
+export function buildDeepSeekIdentitySemanticRepairRequest(
+  draft: DeepSeekIdentityDraft,
+): ResponseCreateParamsNonStreaming {
+  // The frozen flat schema cannot express its status-dependent null invariant
+  // without conditional/combinator semantics. Keep that contract immutable and
+  // constrain only this provider-specific repair response instead.
+  const frozenSchema = FROZEN_V1_IDENTITY_VERIFICATION_JSON_SCHEMA.schema;
+  return {
+    model: DEEPSEEK_V1_MODEL,
+    reasoning: { effort: DEEPSEEK_V1_REASONING_EFFORT },
+    store: false,
+    max_output_tokens: 3000,
+    text: {
+      format: {
+        type: "json_schema",
+        name: "noesis_discovery_identity_semantic_repair",
+        strict: true,
+        schema: {
+          ...frozenSchema,
+          properties: {
+            ...frozenSchema.properties,
+            status: { type: "string", enum: [draft.status] },
+            canonical_identity: { type: "null" },
+            identity_type: { type: "null" },
+            location: { type: "null" },
+          },
+        },
+      },
+    },
+    instructions: DEEPSEEK_IDENTITY_SEMANTIC_REPAIR_INSTRUCTIONS,
+    input: ["PREVIOUS STRUCTURED RESULT:", JSON.stringify(draft)].join("\n"),
+  };
+}
+
+export function preservesDeepSeekIdentityRepairConclusion(
+  original: DeepSeekIdentityDraft,
+  repairedInput: unknown,
+): repairedInput is DeepSeekIdentityDraft {
+  const repaired =
+    DiscoveryIdentityVerificationDraftSchema.safeParse(repairedInput);
+  if (!repaired.success) return false;
+  const expected: DeepSeekIdentityDraft = {
+    ...original,
+    canonical_identity: null,
+    identity_type: null,
+    location: null,
+  };
+  return JSON.stringify(repaired.data) === JSON.stringify(expected);
 }
 
 export function buildDeepSeekV1ResearchRequest(

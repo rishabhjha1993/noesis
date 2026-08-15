@@ -173,6 +173,13 @@ export interface DiscoveryIdentityVerificationMetrics {
   total_known_cost_usd?: number | null;
   cost_usd: number | null;
   cost_reason: string | null;
+  semantic_repair_attempted?: boolean;
+  semantic_repair_succeeded?: boolean;
+  attempted?: boolean;
+  usable?: boolean;
+  degraded?: boolean;
+  failure_category?: DiscoveryFailureCategory;
+  latency_ms?: number;
 }
 
 export interface DiscoveryBatchIdentityMapping {
@@ -323,6 +330,22 @@ export type DiscoveryFailureStage =
   | "validation"
   | "unknown";
 
+export type DiscoveryFailureCategory =
+  | "api_error"
+  | "authentication"
+  | "provider_http"
+  | "rate_limit"
+  | "timeout"
+  | "structured_output"
+  | "tool_call"
+  | "search_provider"
+  | "schema_validation"
+  | "malformed_model_output"
+  | "source_validation"
+  | "network_error"
+  | "internal_error"
+  | "unknown";
+
 export interface DiscoverySafeUsageMetrics {
   model: string;
   reasoning_effort: string;
@@ -349,21 +372,7 @@ export interface DiscoveryFailureDiagnostic {
   stage_reached: DiscoveryFailureStage;
   last_completed_stage:
     "none" | "stage1" | "identity_verification" | "research" | "stage3";
-  category:
-    | "api_error"
-    | "authentication"
-    | "provider_http"
-    | "rate_limit"
-    | "timeout"
-    | "structured_output"
-    | "tool_call"
-    | "search_provider"
-    | "schema_validation"
-    | "malformed_model_output"
-    | "source_validation"
-    | "network_error"
-    | "internal_error"
-    | "unknown";
+  category: DiscoveryFailureCategory;
   message: string;
   elapsed_ms: number;
   candidate_id?: string;

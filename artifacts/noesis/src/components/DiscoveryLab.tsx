@@ -427,6 +427,19 @@ export function DiscoveryLab() {
                     </strong>{" "}
                     {result.metrics.stage2.identity_verification.status}
                   </p>
+                  {result.metrics.stage2.identity_verification.degraded && (
+                    <p>
+                      <strong className="text-foreground">
+                        Identity enrichment degraded:
+                      </strong>{" "}
+                      {result.metrics.stage2.identity_verification
+                        .failure_category ?? "unavailable"}
+                      {result.metrics.stage2.identity_verification
+                        .latency_ms !== undefined &&
+                        ` after ${seconds(result.metrics.stage2.identity_verification.latency_ms)}`}
+                      . Candidate research continued without verified identity.
+                    </p>
+                  )}
                   <p>
                     <strong className="text-foreground">
                       Candidate calls using verified identity:

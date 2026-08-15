@@ -21,7 +21,7 @@ The legacy Noesis experience works as a standalone full-stack Node service. The 
 
 ## Current Milestone
 
-`V2 Hybrid — production candidate` is implemented as `discovery-engine-v2-hybrid` with isolated cache revision `v2-hybrid-v1`. Its exact call graph is frozen-V1 Sol-medium vision Stage 1 → optional DeepSeek V4 Pro identity verification with the existing semantic repair → bounded-concurrency DeepSeek V4 Pro candidate-local research → Sol-medium multimodal final synthesis with the original high-detail image → existing deterministic validation. Safely local research failures become source-free `INSUFFICIENT` candidate results and do not abort valid siblings; fundamental provider or contract failures still fail closed. No quality conclusion has been drawn because implementation verification used mocks only and made no paid call.
+`V2 Hybrid — production candidate` remains the intended shippable architecture. Its first real Noordoostpolder run `248adf2e-e2f8-4bec-b5b3-38cbf80303c2` proved the Sol Stage-1 image analysis succeeded but the run then spent roughly 169 seconds in optional DeepSeek identity infrastructure before an incomplete hosted search aborted the analysis; candidate research and final Sol never ran. V2 identity verification is now opportunistic enrichment: verified/unverified/conflicted results are preserved, while safely local tool/search/timeout/structured/validation failures degrade to no accepted identity and frozen-style conservative research continues. One shared 55-second no-retry deadline covers the initial identity call and any semantic repair. Authentication, global provider-configuration, Stage-1, shared-state, and other unsafe failures remain fatal. No quality conclusion exists because the real run never reached research or final synthesis, and no paid rerun occurred in this implementation task.
 
 ## Completed
 
@@ -220,10 +220,13 @@ Latest verified on 2026-08-15:
 - V2 final synthesis is Sol medium with no web and receives the original image again at high detail plus validated Stage-1 grounding, safe research results, candidate statuses, and verified identity when applicable. It is instructed to select only discoveries that materially change how the user reads the visible image; the unchanged deterministic validator remains the final trust boundary.
 - V2 metrics expose per-stage and per-candidate usage, latency, hosted-search counts, model-token cost, known tool cost when available, known cost subtotal, research-pool wall time, concurrency, answered/insufficient/local-failure counts, and sanitized local diagnostics. Unknown DeepSeek hosted-search price remains `null` and is not fabricated.
 - V2 verification used mocked clients only: 6/6 focused V2 tests, 167/167 full repository tests, workspace typecheck, frozen-V1 fingerprint checks, formatting, and full production build passed. Frozen V1, V1 DeepSeek Pro, mutable V1/C1, replay harnesses, and legacy `/` remain unchanged. No paid model, API, or search call occurred.
+- V2 identity robustness was restored after real Noordoostpolder run `248adf2e-e2f8-4bec-b5b3-38cbf80303c2` failed on an incomplete optional identity hosted search after successful Sol Stage 1. V2 now attempts identity once under one shared 55-second SDK timeout/abort deadline with retries disabled. Safely local identity tool-call, incomplete-search, timeout, malformed-output, exhausted semantic-repair, schema, and source-validation failures record sanitized degradation metrics and continue with accepted identity `null`; known failed-response usage/cost is retained, while unavailable usage and cost remain `null`.
+- V2 research still executes every normal frozen-gated candidate when identity is unavailable, including candidates marked `identity_context_needed`. Each receives the existing frozen conservative no-verified-identity warning and may independently return `INSUFFICIENT`; concurrency-three research, candidate-local failure localization/source ownership, multimodal final Sol, and deterministic final validation are unchanged. V1 DeepSeek Pro retains its prior fail-closed identity behavior.
+- The V2 cache revision is `v2-hybrid-v2`, preventing successful results under the former run-blocking identity contract from colliding with the opportunistic contract. Focused V2/DeepSeek/frozen/C1 tests passed 36/36; the full mocked repository suite passed 172/172; workspace typecheck, formatting, full build, and the dedicated frozen fingerprint suite passed. No paid model, API, or search call occurred.
 
 ## Latest Stable Commit
 
-V2 Hybrid production-candidate implementation — this checkpoint. Its immediate predecessor is `c81ab3f`, the DeepSeek identity semantic-repair checkpoint.
+V2 opportunistic-identity reliability checkpoint — this checkpoint. Its immediate predecessor is `c2bc008`, the initial V2 Hybrid production-candidate implementation.
 
 ## Important Decisions
 
@@ -267,6 +270,7 @@ V2 Hybrid production-candidate implementation — this checkpoint. Its immediate
 - Frozen V1 intelligence semantics must not be modified by future optimization work. Experimental architectures require separate variants/cache identities and must prove themselves against the frozen reference. Safe operational instrumentation may be shared only when it cannot alter calls, prompts, model inputs, validation decisions, or Stage-3 evidence.
 - Current cost metrics separate model-token cost, web-search calls, tool cost, and total known cost. After moving candidate research to Luna, web-search fees dominated controlled Noordoostpolder research COGS (`$0.07` of `$0.08614012`); this is an observation, not authorization to optimize search usage yet.
 - V2 Hybrid is the production-candidate architecture, not another open-ended experiment. No further architecture experimentation should occur before its acceptance check unless a blocker prevents execution.
+- V2 identity is optional enrichment, never a deterministic research gate. A safely unavailable identity means no verified context, not no candidate research. The initial call and optional repair share one 55-second deadline and no retry; V2 candidate research and final Sol timeout behavior remain unchanged.
 
 ## Known Issues / Risks
 
@@ -290,7 +294,8 @@ V2 Hybrid production-candidate implementation — this checkpoint. Its immediate
 - The mutable `discovery-engine-v1` label has historical results from more than one intelligence contract. Only `discovery-engine-v1-frozen-3a0bca12` should be treated as the restored historical ruler going forward.
 - DeepSeek V4 Pro compatibility is verified only through official documentation and mocked transport tests. The first-party Responses API ignores frozen OpenAI's `search_context_size` and `include` request hints, maps `medium` reasoning to `high`, and publishes no separable hosted-search fee. No quality, latency, source-shape, or actual-cost conclusion should be drawn until a separately authorized real comparison run.
 - The first real DeepSeek Noordoostpolder attempt failed before candidate research because DeepSeek returned an unresolved identity with forbidden canonical fields. The repair path is verified only with mocks; no paid rerun has been made, so real repair compliance and end-to-end challenger quality remain unknown.
+- The first real V2 Hybrid Noordoostpolder run completed Sol Stage 1 but failed before candidate research because optional DeepSeek identity hosted search did not complete. That exact failure now degrades safely in mocked end-to-end coverage, but the architecture has not yet completed a real V2 run; quality, latency, and actual cost therefore remain unproven.
 
 ## Next Step
 
-Run one small human acceptance check of `V2 Hybrid — production candidate`, then freeze the architecture if its image-grounded quality and reliability are acceptable. Do not infer quality superiority from mocked verification, and do not begin further architecture experimentation before this acceptance check unless a blocker prevents execution.
+Rerun the same Noordoostpolder image exactly once through `V2 Hybrid — production candidate`, then stop for human review. Make no additional architecture changes before observing that result.

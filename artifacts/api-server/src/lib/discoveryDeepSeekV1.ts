@@ -44,6 +44,12 @@ Preserve the substantive verification conclusion exactly. Preserve status, hypot
 
 export type DeepSeekClient = Pick<OpenAI, "responses">;
 
+export interface DeepSeekRequestOptions {
+  timeout?: number;
+  maxRetries?: number;
+  signal?: AbortSignal | null;
+}
+
 type DeepSeekIdentityDraft = Omit<DiscoveryIdentityVerification, "sources">;
 
 export type DeepSeekFailureCategory =
@@ -233,13 +239,20 @@ function errorStatus(error: unknown): number | null {
 
 function providerFailureCategory(error: unknown): DeepSeekFailureCategory {
   const status = errorStatus(error);
-  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  const name = error instanceof Error ? error.name : "";
+  const message = error instanceof Error ? error.message : "";
+  const code =
+    error instanceof Error &&
+    typeof (error as Error & { code?: unknown }).code === "string"
+      ? (error as Error & { code: string }).code
+      : "";
+  const searchable = `${name} ${message} ${code}`.toLowerCase();
   if (status === 401 || status === 403) return "authentication";
   if (status === 429) return "rate_limit";
   if (
     status === 408 ||
     status === 504 ||
-    /timeout|timed out|aborterror|etimedout/.test(message)
+    /timeout|timed out|abort|aborted|etimedout/.test(searchable)
   ) {
     return "timeout";
   }
@@ -250,10 +263,11 @@ export async function createDeepSeekResponse(
   client: DeepSeekClient,
   request: ResponseCreateParamsNonStreaming,
   expectsWebSearch: boolean,
+  options?: DeepSeekRequestOptions,
 ): Promise<Response> {
   let response: Response;
   try {
-    response = await client.responses.create(request);
+    response = await client.responses.create(request, options);
   } catch (error) {
     throw new DeepSeekDiscoveryError(
       providerFailureCategory(error),

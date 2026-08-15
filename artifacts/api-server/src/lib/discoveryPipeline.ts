@@ -70,14 +70,17 @@ import {
   preservesDeepSeekIdentityRepairConclusion,
   recoverableDeepSeekIdentityContradiction,
   type DeepSeekClient,
+  type DeepSeekRequestOptions,
 } from "./discoveryDeepSeekV1";
 import {
   V2_HYBRID_ENGINE_VERSION,
+  V2_HYBRID_IDENTITY_TIMEOUT_MS,
   V2_HYBRID_REASONING_EFFORT,
   V2_HYBRID_RESEARCH_MAX_CONCURRENCY,
   V2_HYBRID_STAGE1_MODEL,
   V2_HYBRID_STAGE3_MODEL,
   buildV2HybridFinalRequest,
+  createV2HybridIdentityRequestOptions,
 } from "./discoveryHybridV2";
 
 export const DISCOVERY_ENGINE_VERSION = "discovery-engine-v1";
@@ -315,6 +318,11 @@ export interface DiscoveryIdentityVerificationMetrics {
   cost_reason: string | null;
   semantic_repair_attempted?: boolean;
   semantic_repair_succeeded?: boolean;
+  attempted?: boolean;
+  usable?: boolean;
+  degraded?: boolean;
+  failure_category?: DiscoveryFailureCategory;
+  latency_ms?: number;
 }
 
 export interface DiscoveryBatchResearchMetrics extends DiscoveryStageMetrics {
@@ -480,6 +488,11 @@ export interface DiscoveryFailureDiagnostic {
           status: "verified" | "unverified" | "conflicted" | null;
           semantic_repair_attempted?: boolean;
           semantic_repair_succeeded?: boolean;
+          attempted?: boolean;
+          usable?: boolean;
+          degraded?: boolean;
+          failure_category?: DiscoveryFailureCategory;
+          latency_ms?: number;
         })
       | null;
     research: {
@@ -523,6 +536,11 @@ interface DiscoveryExecutionState {
         status: "verified" | "unverified" | "conflicted" | null;
         semantic_repair_attempted?: boolean;
         semantic_repair_succeeded?: boolean;
+        attempted?: boolean;
+        usable?: boolean;
+        degraded?: boolean;
+        failure_category?: DiscoveryFailureCategory;
+        latency_ms?: number;
       })
     | null;
   knownStage2Metrics: DiscoveryStageMetrics[];
@@ -921,6 +939,15 @@ function createFailureDiagnostic(
                     state.identityVerification.semantic_repair_succeeded,
                 }
               : {}),
+            ...(state.identityVerification.attempted !== undefined
+              ? {
+                  attempted: state.identityVerification.attempted,
+                  usable: state.identityVerification.usable,
+                  degraded: state.identityVerification.degraded,
+                  failure_category: state.identityVerification.failure_category,
+                  latency_ms: state.identityVerification.latency_ms,
+                }
+              : {}),
           }
         : null,
       research: {
@@ -1284,6 +1311,7 @@ async function runDeepSeekV1IdentityVerification(
   stage1: DiscoveryStage1,
   gatedCandidates: DiscoveryCandidate[],
   state: DiscoveryExecutionState,
+  requestOptions?: DeepSeekRequestOptions,
 ): Promise<DiscoveryIdentityVerificationExecution> {
   const request = buildDeepSeekV1IdentityRequest(stage1, gatedCandidates);
   if (!request) return identityNotRun();
@@ -1292,7 +1320,12 @@ async function runDeepSeekV1IdentityVerification(
   state.currentCandidateId = undefined;
   state.currentQuestionId = undefined;
   const started = Date.now();
-  const response = await createDeepSeekResponse(deepseek, request, true);
+  const response = await createDeepSeekResponse(
+    deepseek,
+    request,
+    true,
+    requestOptions,
+  );
   const usage = normalizeResponseUsage(
     response,
     Date.now() - started,
@@ -1338,6 +1371,7 @@ async function runDeepSeekV1IdentityVerification(
       deepseek,
       buildDeepSeekIdentitySemanticRepairRequest(recoverable),
       false,
+      requestOptions,
     );
     const repairUsage = normalizeResponseUsage(
       repairResponse,
@@ -1400,6 +1434,142 @@ async function runDeepSeekV1IdentityVerification(
         : {}),
     },
   };
+}
+
+const V2_HYBRID_DEGRADABLE_IDENTITY_FAILURES =
+  new Set<DiscoveryFailureCategory>([
+    "timeout",
+    "tool_call",
+    "search_provider",
+    "structured_output",
+    "schema_validation",
+    "malformed_model_output",
+    "source_validation",
+  ]);
+
+function identityStageMetricsFromState(
+  identity: NonNullable<DiscoveryExecutionState["identityVerification"]>,
+): DiscoveryStageMetrics {
+  return {
+    usage: identity.usage,
+    web_search_calls: identity.web_search_calls,
+    model_token_cost_usd: identity.model_token_cost_usd,
+    tool_cost_usd: identity.tool_cost_usd,
+    total_known_cost_usd: identity.total_known_cost_usd,
+    cost_usd: identity.cost_usd,
+    cost_reason: identity.cost_reason,
+  };
+}
+
+function unknownV2IdentityStageMetrics(
+  latencyMs: number,
+): DiscoveryStageMetrics {
+  return {
+    usage: {
+      ...emptyUsage(DEEPSEEK_V1_MODEL, "deepseek"),
+      latency_ms: latencyMs,
+    },
+    web_search_calls: 0,
+    model_token_cost_usd: null,
+    tool_cost_usd: null,
+    total_known_cost_usd: null,
+    cost_usd: null,
+    cost_reason:
+      "Identity verification usage was unavailable after safe degradation.",
+  };
+}
+
+async function runV2HybridIdentityVerification(
+  deepseek: DeepSeekClient,
+  stage1: DiscoveryStage1,
+  gatedCandidates: DiscoveryCandidate[],
+  state: DiscoveryExecutionState,
+): Promise<DiscoveryIdentityVerificationExecution> {
+  const started = Date.now();
+  try {
+    const execution = await runDeepSeekV1IdentityVerification(
+      deepseek,
+      stage1,
+      gatedCandidates,
+      state,
+      createV2HybridIdentityRequestOptions(V2_HYBRID_IDENTITY_TIMEOUT_MS),
+    );
+    return {
+      result: execution.result,
+      metrics: {
+        ...execution.metrics,
+        attempted: execution.metrics.ran,
+        usable: execution.result !== null,
+        degraded: false,
+        latency_ms: Date.now() - started,
+      },
+    };
+  } catch (error) {
+    const failureCategory = classifyDiscoveryFailure(error);
+    if (!V2_HYBRID_DEGRADABLE_IDENTITY_FAILURES.has(failureCategory)) {
+      throw error;
+    }
+
+    const latencyMs = Date.now() - started;
+    const priorIdentityState = state.identityVerification;
+    let knownMetrics = priorIdentityState
+      ? identityStageMetricsFromState(priorIdentityState)
+      : null;
+    if (
+      !knownMetrics &&
+      error instanceof DeepSeekDiscoveryError &&
+      error.response
+    ) {
+      knownMetrics = stageMetrics(
+        normalizeResponseUsage(error.response, latencyMs, "deepseek"),
+        countWebSearchCalls(error.response),
+      );
+      state.knownStage2Metrics.push(knownMetrics);
+    }
+    const stateMetrics =
+      knownMetrics ?? unknownV2IdentityStageMetrics(latencyMs);
+    const semanticRepair = priorIdentityState?.semantic_repair_attempted
+      ? {
+          semantic_repair_attempted: true,
+          semantic_repair_succeeded:
+            priorIdentityState.semantic_repair_succeeded ?? false,
+        }
+      : {};
+
+    state.identityVerification = {
+      ...stateMetrics,
+      completed: true,
+      status: null,
+      ...semanticRepair,
+      attempted: true,
+      usable: false,
+      degraded: true,
+      failure_category: failureCategory,
+      latency_ms: latencyMs,
+    };
+    state.lastCompletedStage = "identity_verification";
+
+    return {
+      result: null,
+      metrics: {
+        ran: true,
+        status: "not_run",
+        usage: knownMetrics?.usage ?? null,
+        web_search_calls: knownMetrics?.web_search_calls ?? 0,
+        model_token_cost_usd: knownMetrics?.model_token_cost_usd ?? null,
+        tool_cost_usd: knownMetrics?.tool_cost_usd ?? null,
+        total_known_cost_usd: knownMetrics?.total_known_cost_usd ?? null,
+        cost_usd: knownMetrics?.cost_usd ?? null,
+        cost_reason: knownMetrics?.cost_reason ?? stateMetrics.cost_reason,
+        ...semanticRepair,
+        attempted: true,
+        usable: false,
+        degraded: true,
+        failure_category: failureCategory,
+        latency_ms: latencyMs,
+      },
+    };
+  }
 }
 
 async function runSelectiveResearchWithState(
@@ -1781,7 +1951,7 @@ async function runV2HybridSelectiveResearchWithState(
   const gatedCandidates = stage1.candidates.filter(
     (candidate) => evaluateResearchGate(stage1, candidate).allowed,
   );
-  const identityVerification = await runDeepSeekV1IdentityVerification(
+  const identityVerification = await runV2HybridIdentityVerification(
     deepseek,
     stage1,
     gatedCandidates,
@@ -2327,15 +2497,21 @@ async function runDiscoveryPipelineWithState(
     (sum, metrics) => sum + metrics.web_search_calls,
     0,
   );
-  const stage2ModelTokenCost = sumNullable(
-    stage2Components.map((metrics) => metrics.model_token_cost_usd),
+  const stage2ModelTokenCosts = stage2Components.map(
+    (metrics) => metrics.model_token_cost_usd,
   );
+  const stage2ModelTokenCost = isV2Hybrid
+    ? sumKnown(stage2ModelTokenCosts)
+    : sumNullable(stage2ModelTokenCosts);
   const stage2ToolCost = sumNullable(
     stage2Components.map((metrics) => metrics.tool_cost_usd),
   );
-  const stage2Cost = sumNullable(
-    stage2Components.map((metrics) => metrics.total_known_cost_usd),
+  const stage2KnownCosts = stage2Components.map(
+    (metrics) => metrics.total_known_cost_usd,
   );
+  const stage2Cost = isV2Hybrid
+    ? sumKnown(stage2KnownCosts)
+    : sumNullable(stage2KnownCosts);
 
   state.stageReached = "stage3";
   const stage3Started = Date.now();
@@ -2458,21 +2634,27 @@ async function runDiscoveryPipelineWithState(
       : undefined,
   );
 
-  const totalModelTokenCost = sumNullable([
+  const modelTokenCosts = [
     stage1Metrics.model_token_cost_usd,
     stage2ModelTokenCost,
     stage3Metrics.model_token_cost_usd,
-  ]);
+  ];
+  const totalModelTokenCost = isV2Hybrid
+    ? sumKnown(modelTokenCosts)
+    : sumNullable(modelTokenCosts);
   const totalToolCost = sumNullable([
     stage1Metrics.tool_cost_usd,
     stage2ToolCost,
     stage3Metrics.tool_cost_usd,
   ]);
-  const totalKnownCost = sumNullable([
+  const knownCosts = [
     stage1Metrics.total_known_cost_usd,
     stage2Cost,
     stage3Metrics.total_known_cost_usd,
-  ]);
+  ];
+  const totalKnownCost = isV2Hybrid
+    ? sumKnown(knownCosts)
+    : sumNullable(knownCosts);
   const totalWebSearchCalls =
     stage1Metrics.web_search_calls +
     stage2WebSearchCalls +

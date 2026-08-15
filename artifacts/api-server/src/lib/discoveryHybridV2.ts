@@ -12,14 +12,26 @@ import {
   buildFrozenV1Stage3Context,
   frozenV1ApplicableCandidateIds,
 } from "./discoveryFrozenV1";
+import type { DeepSeekRequestOptions } from "./discoveryDeepSeekV1";
 
 export const V2_HYBRID_VARIANT = "v2-hybrid";
 export const V2_HYBRID_ENGINE_VERSION = "discovery-engine-v2-hybrid";
-export const V2_HYBRID_CACHE_REVISION = "v2-hybrid-v1";
+export const V2_HYBRID_CACHE_REVISION = "v2-hybrid-v2";
 export const V2_HYBRID_STAGE1_MODEL = FROZEN_V1_STAGE1_MODEL;
 export const V2_HYBRID_STAGE3_MODEL = FROZEN_V1_STAGE3_MODEL;
 export const V2_HYBRID_REASONING_EFFORT = FROZEN_V1_REASONING_EFFORT;
 export const V2_HYBRID_RESEARCH_MAX_CONCURRENCY = 3;
+export const V2_HYBRID_IDENTITY_TIMEOUT_MS = 55_000;
+
+export function createV2HybridIdentityRequestOptions(
+  timeoutMs = V2_HYBRID_IDENTITY_TIMEOUT_MS,
+): DeepSeekRequestOptions {
+  return {
+    timeout: timeoutMs,
+    maxRetries: 0,
+    signal: AbortSignal.timeout(timeoutMs),
+  };
+}
 
 export const V2_HYBRID_FINAL_PROMPT = `You are the final Discovery stage of Noesis V2 Hybrid: DISCOVER → RETURN TO IMAGE.
 

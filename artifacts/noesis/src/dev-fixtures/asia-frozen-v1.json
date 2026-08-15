@@ -1,0 +1,638 @@
+{
+  "discovery_id": "d040e529-e497-491a-8476-d26f2c62b41a",
+  "version": "discovery-engine-v1-frozen-3a0bca12",
+  "regions": [
+    {
+      "id": "reg-east-orange",
+      "description": "Dense orange coverage mixed with green across the eastern mainland and coastal zone.",
+      "scope": "local",
+      "x": 0.67,
+      "y": 0.05,
+      "width": 0.29,
+      "height": 0.42
+    },
+    {
+      "id": "reg-south-green",
+      "description": "Predominantly green-covered southern mainland and peninsular areas.",
+      "scope": "local",
+      "x": 0.2,
+      "y": 0.42,
+      "width": 0.55,
+      "height": 0.47
+    },
+    {
+      "id": "reg-mountain-front",
+      "description": "Continuous green arc along the southern face of the bright mountain chain.",
+      "scope": "local",
+      "x": 0.12,
+      "y": 0.17,
+      "width": 0.55,
+      "height": 0.21
+    },
+    {
+      "id": "reg-high-interior",
+      "description": "Pale, elevated interior north of the mountain-front green arc, with sparse colored overlay.",
+      "scope": "local",
+      "x": 0.2,
+      "y": 0.01,
+      "width": 0.48,
+      "height": 0.27
+    },
+    {
+      "id": "reg-central-drainage",
+      "description": "Central lowland containing branching pale channels and dark-green fan-like patterns.",
+      "scope": "local",
+      "x": 0.43,
+      "y": 0.28,
+      "width": 0.25,
+      "height": 0.42
+    },
+    {
+      "id": "reg-east-mixed-colors",
+      "description": "Eastern area where orange speckles and streaks are interspersed with light and dark green.",
+      "scope": "local",
+      "x": 0.69,
+      "y": 0.12,
+      "width": 0.26,
+      "height": 0.33
+    },
+    {
+      "id": "reg-global",
+      "description": "Entire satellite map, including all land, ocean, overlays, and the absence of a legend or title.",
+      "scope": "global",
+      "x": 0,
+      "y": 0,
+      "width": 1,
+      "height": 1
+    }
+  ],
+  "inspection": {
+    "stage1": {
+      "image_summary": "A satellite-style regional map of much of southern and eastern Asia with extensive light-green, dark-green, and orange thematic markings but no visible legend. The overlay shows strong geographic contrasts, alignment with a major mountain front and branching lowlands, and intermingled colors in the east.",
+      "regions": [
+        {
+          "id": "reg-east-orange",
+          "description": "Dense orange coverage mixed with green across the eastern mainland and coastal zone.",
+          "scope": "local",
+          "x": 0.67,
+          "y": 0.05,
+          "width": 0.29,
+          "height": 0.42
+        },
+        {
+          "id": "reg-south-green",
+          "description": "Predominantly green-covered southern mainland and peninsular areas.",
+          "scope": "local",
+          "x": 0.2,
+          "y": 0.42,
+          "width": 0.55,
+          "height": 0.47
+        },
+        {
+          "id": "reg-mountain-front",
+          "description": "Continuous green arc along the southern face of the bright mountain chain.",
+          "scope": "local",
+          "x": 0.12,
+          "y": 0.17,
+          "width": 0.55,
+          "height": 0.21
+        },
+        {
+          "id": "reg-high-interior",
+          "description": "Pale, elevated interior north of the mountain-front green arc, with sparse colored overlay.",
+          "scope": "local",
+          "x": 0.2,
+          "y": 0.01,
+          "width": 0.48,
+          "height": 0.27
+        },
+        {
+          "id": "reg-central-drainage",
+          "description": "Central lowland containing branching pale channels and dark-green fan-like patterns.",
+          "scope": "local",
+          "x": 0.43,
+          "y": 0.28,
+          "width": 0.25,
+          "height": 0.42
+        },
+        {
+          "id": "reg-east-mixed-colors",
+          "description": "Eastern area where orange speckles and streaks are interspersed with light and dark green.",
+          "scope": "local",
+          "x": 0.69,
+          "y": 0.12,
+          "width": 0.26,
+          "height": 0.33
+        },
+        {
+          "id": "reg-global",
+          "description": "Entire satellite map, including all land, ocean, overlays, and the absence of a legend or title.",
+          "scope": "global",
+          "x": 0,
+          "y": 0,
+          "width": 1,
+          "height": 1
+        }
+      ],
+      "candidates": [
+        {
+          "id": "cand-01",
+          "question_id": "q-01",
+          "visual_trigger": "A pronounced east–west contrast between dense orange markings and broad green coverage.",
+          "observation": "Orange marks densely cover the eastern mainland, especially toward the coast, while comparable areas farther south and west contain mostly light and dark green overlays.",
+          "region_ids": [
+            "reg-east-orange",
+            "reg-south-green"
+          ],
+          "investigation_question": "What mapped category does the orange overlay represent, and what explains its strong concentration on the eastern mainland compared with the predominantly green southern and western areas?",
+          "research_needed": true,
+          "research_rationale": "The absent legend and dataset metadata are necessary to identify the orange category and determine whether its geographic concentration reflects the measured phenomenon, a classification rule, or data coverage.",
+          "identity_context_needed": true
+        },
+        {
+          "id": "cand-02",
+          "question_id": "q-02",
+          "visual_trigger": "Green coverage forms a narrow, continuous ribbon beside a bright mountain barrier and drops off abruptly across it.",
+          "observation": "A long green arc closely follows the southern edge of a bright, rugged mountain chain, while the elevated interior immediately to its north has much less green coloring.",
+          "region_ids": [
+            "reg-mountain-front",
+            "reg-high-interior"
+          ],
+          "investigation_question": "Does the sharp transition from the sparsely colored high interior to the continuous green belt along the mountain front represent a real environmental threshold or a mapping/classification boundary?",
+          "research_needed": true,
+          "research_rationale": "Verified terrain, environmental data, and the overlay's classification method could distinguish a genuine elevation-related transition from masking or threshold effects.",
+          "identity_context_needed": true
+        },
+        {
+          "id": "cand-03",
+          "question_id": "q-03",
+          "visual_trigger": "Dark-green overlay repeatedly traces a visibly branching drainage-like network.",
+          "observation": "Dark-green patches form branching and fan-like structures around pale, sinuous channels in a broad central lowland and near its coast.",
+          "region_ids": [
+            "reg-central-drainage"
+          ],
+          "investigation_question": "Are the branching dark-green forms in the central lowland explicitly mapping river-associated vegetation or wetlands, or do they arise from another land-cover class that merely follows the visible drainage pattern?",
+          "research_needed": true,
+          "research_rationale": "The mapped place, hydrologic features, and overlay legend are needed to test whether the apparent alignment with channels is causal or coincidental.",
+          "identity_context_needed": true
+        },
+        {
+          "id": "cand-04",
+          "question_id": "q-04",
+          "visual_trigger": "Orange and green marks appear spatially intermingled, with no visible legend explaining their relationship.",
+          "observation": "In the eastern region, orange speckles and streaks are interspersed with multiple shades of green rather than forming cleanly separated zones.",
+          "region_ids": [
+            "reg-east-mixed-colors"
+          ],
+          "investigation_question": "Are orange and green mutually exclusive land classes, separate overlaid variables, or intensity levels within one classification?",
+          "research_needed": true,
+          "research_rationale": "Only the original legend or layer documentation can establish whether the colors encode categories, overlapping variables, or graded values; that distinction would substantially change the map's interpretation.",
+          "identity_context_needed": true
+        },
+        {
+          "id": "cand-05",
+          "question_id": "q-05",
+          "visual_trigger": "A thematic overlay dominates the map despite the complete absence of an explanatory legend or metadata.",
+          "observation": "The image contains extensive colored thematic markings over satellite imagery but shows no visible title, legend, scale, timestamp, or explanatory key.",
+          "region_ids": [
+            "reg-global"
+          ],
+          "investigation_question": "Which dataset, date, and class definitions produced the conspicuous green and orange overlays on this satellite basemap?",
+          "research_needed": true,
+          "research_rationale": "Identifying the map product and overlay metadata is essential for decoding the colors and determining whether the image depicts vegetation, land use, change, or another variable.",
+          "identity_context_needed": true
+        }
+      ],
+      "identity_hypotheses": [
+        {
+          "id": "hyp-01",
+          "proposed_identity": "A geographic satellite map centered on South, East, and Southeast Asia",
+          "identity_type": "map",
+          "visible_evidence": [
+            "A large triangular peninsula projects into the ocean at lower left.",
+            "A broad elevated interior and curved bright mountain chain occupy the north-central area.",
+            "Multiple peninsulas, offshore islands, and an eastern-facing continental coastline are visible."
+          ],
+          "observed_labels_or_numbers": [],
+          "region_ids": [
+            "reg-global"
+          ],
+          "confidence": 0.98,
+          "verification_would_help": true,
+          "relevant_question_ids": [
+            "q-01",
+            "q-02",
+            "q-03"
+          ]
+        },
+        {
+          "id": "hyp-02",
+          "proposed_identity": "A Google satellite-style basemap carrying an unidentified thematic land-surface overlay",
+          "identity_type": "map",
+          "visible_evidence": [
+            "Faint repeated Google watermarks are visible over land and water.",
+            "Green and orange marks have a classified-overlay appearance distinct from the underlying photographic terrain.",
+            "No overlay legend or layer title is present in the frame."
+          ],
+          "observed_labels_or_numbers": [
+            "Google"
+          ],
+          "region_ids": [
+            "reg-global",
+            "reg-east-mixed-colors"
+          ],
+          "confidence": 0.78,
+          "verification_would_help": true,
+          "relevant_question_ids": [
+            "q-01",
+            "q-04",
+            "q-05"
+          ]
+        }
+      ]
+    },
+    "identity_verification": {
+      "status": "verified",
+      "hypothesis_id": "hyp-01",
+      "canonical_identity": "Geographic map view spanning the Indian subcontinent (South Asia), the Himalayan/Tibetan region, East Asia, and mainland/maritime Southeast Asia",
+      "identity_type": "map",
+      "location": "South, East, and Southeast Asia",
+      "verification_basis": "The visible configuration is geographically diagnostic: the south-pointing Indian peninsula lies between the Arabian Sea and Bay of Bengal, immediately south of the Himalayan mountain system, while Southeast Asia lies east of the subcontinent and south of China. These relationships establish the regional geographic identity, though not a particular map product or data layer. ([nationsonline.org](https://www.nationsonline.org/oneworld/map/India-Administrative-map.htm?utm_source=openai))",
+      "confidence": 0.96,
+      "match_evidence": [
+        {
+          "basis": "geographic_configuration",
+          "detail": "The triangular southward peninsula matches India’s position between the Arabian Sea and Bay of Bengal, with the Himalayas forming its northern mountain arc. ([nationsonline.org](https://www.nationsonline.org/oneworld/map/India-Administrative-map.htm?utm_source=openai))"
+        },
+        {
+          "basis": "geographic_configuration",
+          "detail": "The eastern continental coastline, Indochinese peninsulas, and island-rich waters are consistent with the documented geographic layout of Southeast Asia. ([alabamamaps.ua.edu](https://alabamamaps.ua.edu/contemporarymaps/world/asia/seasia4c.pdf?utm_source=openai))"
+        }
+      ],
+      "sources": [
+        {
+          "title": "Political Map of India with States - Nations Online Project",
+          "url": "https://www.nationsonline.org/oneworld/map/India-Administrative-map.htm?utm_source=openai"
+        },
+        {
+          "title": "SOUTHEAST ASIA",
+          "url": "https://alabamamaps.ua.edu/contemporarymaps/world/asia/seasia4c.pdf?utm_source=openai"
+        }
+      ]
+    },
+    "research_results": [
+      {
+        "candidate_id": "cand-01",
+        "question_id": "q-01",
+        "question": "What mapped category does the orange overlay represent, and what explains its strong concentration on the eastern mainland compared with the predominantly green southern and western areas?",
+        "status": "insufficient",
+        "finding": "The orange overlay’s mapped category cannot be identified from its color and distribution alone. No legend, map title, dataset name, date, or layer metadata is supplied, and color assignments are not standardized across regional maps. For example, South/Southeast Asian land-cover products use multi-class classification legends, while newer Southeast Asian land-use/land-cover products use different category schemes; neither establishes what orange means in this particular map. ([usgs.gov]([validated source]))\n\nAccordingly, the eastern concentration cannot reliably be attributed to a real geographic pattern, a classification threshold, or uneven data coverage. The legend and source metadata are required to answer both parts of the question.",
+        "sources": [
+          {
+            "title": "A land-cover map for South and Southeast Asia derived from SPOT-VEGETATION data | U.S. Geological Survey",
+            "url": "https://www.usgs.gov/publications/a-land-cover-map-south-and-southeast-asia-derived-spot-vegetation-data?utm_source=openai"
+          }
+        ]
+      },
+      {
+        "candidate_id": "cand-02",
+        "question_id": "q-02",
+        "question": "Does the sharp transition from the sparsely colored high interior to the continuous green belt along the mountain front represent a real environmental threshold or a mapping/classification boundary?",
+        "status": "answered",
+        "finding": "It is **primarily a real environmental transition**, not merely a mapping/classification boundary. The Himalaya intercepts moisture-bearing South Asian monsoon air: precipitation is especially high along the southern foothills and slopes, then falls sharply across and north of the range into the Tibetan interior. This supports a continuous, greener belt on the southern mountain front while the high plateau beyond is colder, drier, and more sparsely vegetated. Studies document drops from several thousand millimeters of annual precipitation on southern Himalayan slopes to far lower amounts over short northward distances, and identify southern Tibet as lying in the Himalaya’s rain shadow. ([erdkunde.uni-bonn.de]([validated source]))\n\nThe apparent sharpness can be **accentuated by the map’s classification and color thresholds**—land-cover products discretize gradual differences and can have boundary effects—but no particular overlay or method was identified here, so there is no evidence that the ribbon itself is an artifact or masking boundary. ([doi.org]([validated source]))",
+        "sources": [
+          {
+            "title": "Vegetationsgrenzen im extremen und multizonalen Hochgebirge (Zentraler Himalaya) | ERDKUNDE",
+            "url": "https://www.erdkunde.uni-bonn.de/article/view/2052?utm_source=openai"
+          },
+          {
+            "title": "Regional Land Cover Monitoring System for Hindu Kush Himalaya | Springer Nature Link",
+            "url": "https://doi.org/10.1007/978-3-030-73569-2_6?utm_source=openai"
+          }
+        ]
+      },
+      {
+        "candidate_id": "cand-03",
+        "question_id": "q-03",
+        "question": "Are the branching dark-green forms in the central lowland explicitly mapping river-associated vegetation or wetlands, or do they arise from another land-cover class that merely follows the visible drainage pattern?",
+        "status": "insufficient",
+        "finding": "The map product and its legend are not identified, so the dark-green overlay cannot be reliably assigned to a specific land-cover class. In the Ganges–Brahmaputra delta, dark green *can* denote river-associated swamp/mangrove forest—the Sundarbans—rather than open water; satellite descriptions explicitly show dark-green forest threaded by tidal rivers. ([esa.int]([validated source]))\n\nBut that evidence concerns the coastal delta specifically, not the other branching dark-green forms across the central lowland. Without the source legend, it remains unproven whether those forms map wetlands/riparian vegetation, forest, cropland, or another drainage-correlated class.",
+        "sources": [
+          {
+            "title": "ESA - Ganges Delta",
+            "url": "https://www.esa.int/ESA_Multimedia/Images/2020/10/Ganges_Delta?utm_source=openai"
+          }
+        ]
+      },
+      {
+        "candidate_id": "cand-04",
+        "question_id": "q-04",
+        "question": "Are orange and green mutually exclusive land classes, separate overlaid variables, or intensity levels within one classification?",
+        "status": "insufficient",
+        "finding": "No verified identity, original legend, or layer documentation was supplied, so the image alone cannot establish whether orange and green are mutually exclusive land classes, overlaid variables, or value/intensity levels. Similar-looking land-cover maps use orange and green for distinct categorical classes, but that general convention is not evidence about this exact map. ([courses.ems.psu.edu]([validated source]))",
+        "sources": [
+          {
+            "title": "Chapter 7: Remote Sensing: Imaging Our World",
+            "url": "https://courses.ems.psu.edu/geog160/book/export/html/1955?utm_source=openai"
+          }
+        ]
+      },
+      {
+        "candidate_id": "cand-05",
+        "question_id": "q-05",
+        "question": "Which dataset, date, and class definitions produced the conspicuous green and orange overlays on this satellite basemap?",
+        "status": "insufficient",
+        "finding": "No exact map product, dataset, acquisition date, or color key can be established from the supplied observation alone. Green and orange are used by many incompatible thematic products—for example, land-cover classes, vegetation/change indicators, land-use categories, or custom symbology—so their meanings cannot be reliably inferred without the map’s legend, layer name, metadata, URL, coordinates, or a verified identity for the image. USGS land-cover products themselves use multi-class legends, illustrating why color alone is not a sufficient identifier. ([usgs.gov]([validated source]))",
+        "sources": [
+          {
+            "title": "LCMAP Class Legend and Description | U.S. Geological Survey",
+            "url": "https://www.usgs.gov/special-topics/lcmap/lcmap-class-legend-and-description?utm_source=openai"
+          }
+        ]
+      }
+    ],
+    "discovery_candidates": {
+      "disc-01": [
+        "cand-02"
+      ],
+      "disc-02": [
+        "cand-03"
+      ],
+      "disc-03": [
+        "cand-01",
+        "cand-04",
+        "cand-05"
+      ]
+    }
+  },
+  "discoveries": [
+    {
+      "id": "disc-01",
+      "type": "relational",
+      "title": "The Himalaya creates the map’s sharpest environmental divide",
+      "visual_trigger": "The green overlay stops abruptly across a bright, continuous mountain barrier.",
+      "observation": "A continuous green arc hugs the southern face of the bright mountain chain, while the high interior immediately beyond it has little colored coverage.",
+      "discovery": "The green ribbon along the Himalaya is chiefly the visible expression of a real climatic boundary: wet monsoon-facing slopes give way to the colder, drier Tibetan rain shadow.",
+      "why_it_matters": "It converts an apparently artificial color boundary into evidence of monsoon uplift and a major rain-shadow transition.",
+      "explanation": "Moist South Asian monsoon air rises against the Himalaya and produces heavy precipitation on the southern slopes. Much less moisture reaches the elevated interior to the north. The overlay’s classification may sharpen the edge, but the underlying contrast is environmental rather than merely cartographic.",
+      "reinterpretation": "Look back at the mountain chain as a climatic wall: the green southern edge is the wet, windward side, and the pale plateau beyond it is the dry, leeward side—not simply an arbitrary boundary in the overlay.",
+      "region_ids": [
+        "reg-mountain-front",
+        "reg-high-interior"
+      ],
+      "provenance": "researched",
+      "confidence": 0.96,
+      "sources": [
+        {
+          "title": "Vegetationsgrenzen im extremen und multizonalen Hochgebirge (Zentraler Himalaya) | ERDKUNDE",
+          "url": "https://www.erdkunde.uni-bonn.de/article/view/2052?utm_source=openai"
+        },
+        {
+          "title": "Regional Land Cover Monitoring System for Hindu Kush Himalaya | Springer Nature Link",
+          "url": "https://doi.org/10.1007/978-3-030-73569-2_6?utm_source=openai"
+        }
+      ]
+    },
+    {
+      "id": "disc-02",
+      "type": "local",
+      "title": "The dark-green pattern is drainage-shaped, even if its class is unknown",
+      "visual_trigger": "Dark-green forms repeatedly trace the same branching geometry as the visible channel network.",
+      "observation": "Dark-green patches branch around pale channels through the central lowland and spread into fan-like forms toward the coast.",
+      "discovery": "Although the dark-green class cannot be named, its branching geometry shows that its distribution is strongly organized by the drainage network.",
+      "why_it_matters": "The pattern reveals a meaningful river association without pretending that color alone identifies the mapped land-cover category.",
+      "explanation": "The repeated correspondence between dark-green fans and visible sinuous channels is too spatially structured to treat as random coloration. It supports a relationship with river corridors, floodplains, deltas, or drainage-controlled land cover, but does not establish which specific class the color represents.",
+      "reinterpretation": "Follow the pale channels and notice how the dark green repeatedly branches with them. Read this as evidence of hydrologic control, while resisting the unsupported leap that dark green must specifically mean wetlands, mangroves, or forest.",
+      "region_ids": [
+        "reg-central-drainage"
+      ],
+      "provenance": "derived",
+      "confidence": 0.86,
+      "sources": []
+    },
+    {
+      "id": "disc-03",
+      "type": "global",
+      "title": "The map shows a pattern, not a decodable phenomenon",
+      "visual_trigger": "Extensive orange and green thematic markings appear without any legend, title, timestamp, or layer identification.",
+      "observation": "Orange dominates parts of the eastern mainland and coast, green dominates much of the south and west, and both colors intermingle in the east despite the complete absence of a key.",
+      "discovery": "The striking orange–green contrast cannot be decoded as a geographic fact because the image omits the information that assigns meaning to those colors.",
+      "why_it_matters": "Any substantive interpretation of the east–west color contrast would otherwise risk converting arbitrary symbology into a false environmental claim.",
+      "explanation": "No title, legend, date, dataset name, or layer metadata is visible. Orange and green could represent categorical land classes, intensity levels, separate variables, or custom symbology; their intermingling does not resolve which. The eastern concentration is visually real, but its subject is not identifiable from this image alone.",
+      "reinterpretation": "Look back at the colors as an unexplained spatial pattern rather than automatically reading orange as loss, agriculture, dryness, or urbanization—or green as forest. The map supports comparison of where colors occur, but not what they mean.",
+      "region_ids": [
+        "reg-east-orange",
+        "reg-south-green",
+        "reg-east-mixed-colors",
+        "reg-global"
+      ],
+      "provenance": "derived",
+      "confidence": 0.99,
+      "sources": []
+    }
+  ],
+  "metrics": {
+    "timestamp": "2026-08-14T20:26:13.962Z",
+    "engine_version": "discovery-engine-v1-frozen-3a0bca12",
+    "success": true,
+    "stage1": {
+      "usage": {
+        "model": "gpt-5.6-sol",
+        "reasoning_effort": "medium",
+        "input_tokens": 2821,
+        "cached_input_tokens": 0,
+        "output_tokens": 2436,
+        "total_tokens": 5257,
+        "latency_ms": 53375
+      },
+      "web_search_calls": 0,
+      "model_token_cost_usd": 0.087185,
+      "tool_cost_usd": 0,
+      "total_known_cost_usd": 0.087185,
+      "cost_usd": 0.087185,
+      "cost_reason": null
+    },
+    "stage2": {
+      "model": "gpt-5.6-terra",
+      "candidate_research_model": "gpt-5.6-terra",
+      "reasoning_effort": "medium",
+      "questions_sent": 5,
+      "latency_ms": 48314,
+      "usage": {
+        "model": "gpt-5.6-terra",
+        "reasoning_effort": "medium",
+        "input_tokens": 70399,
+        "cached_input_tokens": 22713,
+        "output_tokens": 2189,
+        "total_tokens": 72588,
+        "latency_ms": 48314
+      },
+      "web_search_calls": 6,
+      "model_token_cost_usd": 0.1261826,
+      "tool_cost_usd": 0.060000000000000005,
+      "total_known_cost_usd": 0.18618259999999998,
+      "cost_usd": 0.18618259999999998,
+      "identity_verification": {
+        "ran": true,
+        "status": "verified",
+        "usage": {
+          "model": "gpt-5.6-terra",
+          "reasoning_effort": "medium",
+          "input_tokens": 12246,
+          "cached_input_tokens": 4657,
+          "output_tokens": 780,
+          "total_tokens": 13026,
+          "latency_ms": 13201
+        },
+        "web_search_calls": 1,
+        "model_token_cost_usd": 0.025469400000000003,
+        "tool_cost_usd": 0.01,
+        "total_known_cost_usd": 0.035469400000000005,
+        "cost_usd": 0.035469400000000005,
+        "cost_reason": null
+      },
+      "candidate_calls_using_verified_identity": 3,
+      "candidate_research_api_calls": 5,
+      "answered_candidates": 1,
+      "insufficient_candidates": 4,
+      "calls": [
+        {
+          "candidate_id": "cand-01",
+          "question_id": "q-01",
+          "status": "insufficient",
+          "used_verified_identity_context": true,
+          "usage": {
+            "model": "gpt-5.6-terra",
+            "reasoning_effort": "medium",
+            "input_tokens": 13257,
+            "cached_input_tokens": 0,
+            "output_tokens": 478,
+            "total_tokens": 13735,
+            "latency_ms": 9699
+          },
+          "web_search_calls": 1,
+          "model_token_cost_usd": 0.03225,
+          "tool_cost_usd": 0.01,
+          "total_known_cost_usd": 0.04225,
+          "cost_usd": 0.04225,
+          "cost_reason": null
+        },
+        {
+          "candidate_id": "cand-02",
+          "question_id": "q-02",
+          "status": "answered",
+          "used_verified_identity_context": true,
+          "usage": {
+            "model": "gpt-5.6-terra",
+            "reasoning_effort": "medium",
+            "input_tokens": 13382,
+            "cached_input_tokens": 4514,
+            "output_tokens": 323,
+            "total_tokens": 13705,
+            "latency_ms": 7483
+          },
+          "web_search_calls": 1,
+          "model_token_cost_usd": 0.022514799999999998,
+          "tool_cost_usd": 0.01,
+          "total_known_cost_usd": 0.032514799999999996,
+          "cost_usd": 0.032514799999999996,
+          "cost_reason": null
+        },
+        {
+          "candidate_id": "cand-03",
+          "question_id": "q-03",
+          "status": "insufficient",
+          "used_verified_identity_context": true,
+          "usage": {
+            "model": "gpt-5.6-terra",
+            "reasoning_effort": "medium",
+            "input_tokens": 13418,
+            "cached_input_tokens": 4514,
+            "output_tokens": 290,
+            "total_tokens": 13708,
+            "latency_ms": 7997
+          },
+          "web_search_calls": 1,
+          "model_token_cost_usd": 0.0221908,
+          "tool_cost_usd": 0.01,
+          "total_known_cost_usd": 0.0321908,
+          "cost_usd": 0.0321908,
+          "cost_reason": null
+        },
+        {
+          "candidate_id": "cand-04",
+          "question_id": "q-04",
+          "status": "insufficient",
+          "used_verified_identity_context": false,
+          "usage": {
+            "model": "gpt-5.6-terra",
+            "reasoning_effort": "medium",
+            "input_tokens": 8998,
+            "cached_input_tokens": 4514,
+            "output_tokens": 148,
+            "total_tokens": 9146,
+            "latency_ms": 4514
+          },
+          "web_search_calls": 1,
+          "model_token_cost_usd": 0.011646799999999999,
+          "tool_cost_usd": 0.01,
+          "total_known_cost_usd": 0.0216468,
+          "cost_usd": 0.0216468,
+          "cost_reason": null
+        },
+        {
+          "candidate_id": "cand-05",
+          "question_id": "q-05",
+          "status": "insufficient",
+          "used_verified_identity_context": false,
+          "usage": {
+            "model": "gpt-5.6-terra",
+            "reasoning_effort": "medium",
+            "input_tokens": 9098,
+            "cached_input_tokens": 4514,
+            "output_tokens": 170,
+            "total_tokens": 9268,
+            "latency_ms": 5420
+          },
+          "web_search_calls": 1,
+          "model_token_cost_usd": 0.0121108,
+          "tool_cost_usd": 0.01,
+          "total_known_cost_usd": 0.0221108,
+          "cost_usd": 0.0221108,
+          "cost_reason": null
+        }
+      ],
+      "batch": null
+    },
+    "stage3": {
+      "usage": {
+        "model": "gpt-5.6-sol",
+        "reasoning_effort": "medium",
+        "input_tokens": 3553,
+        "cached_input_tokens": 0,
+        "output_tokens": 1400,
+        "total_tokens": 4953,
+        "latency_ms": 27029
+      },
+      "web_search_calls": 0,
+      "model_token_cost_usd": 0.059765,
+      "tool_cost_usd": 0,
+      "total_known_cost_usd": 0.059765,
+      "cost_usd": 0.059765,
+      "cost_reason": null,
+      "discoveries_returned": 3
+    },
+    "total_latency_ms": 128731,
+    "web_search_calls": 6,
+    "model_token_cost_usd": 0.2731326,
+    "tool_cost_usd": 0.060000000000000005,
+    "total_known_cost_usd": 0.3331326,
+    "total_cost_usd": 0.3331326,
+    "cost_per_successful_analysis_usd": 0.3331326,
+    "cost_per_final_discovery_usd": 0.1110442,
+    "stage1_candidates": 5,
+    "research_gate_passed": 5,
+    "final_discoveries": 3
+  },
+  "cache_hit": false
+}

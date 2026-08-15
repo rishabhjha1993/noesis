@@ -98,3 +98,20 @@
     @apply font-sans antialiased bg-background text-foreground;
   }
 }
+
+@keyframes public-progress-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  55% {
+    transform: translateX(20%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.public-progress {
+  animation: public-progress-sweep 1.8s ease-in-out infinite;
+  transform-origin: left;
+}

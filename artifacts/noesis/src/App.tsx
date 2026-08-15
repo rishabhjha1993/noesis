@@ -11,8 +11,13 @@ import { LoadingScreen } from './components/LoadingScreen';
 import { ResultScreen } from './components/ResultScreen';
 import { ErrorScreen } from './components/ErrorScreen';
 import { DiscoveryLab } from './components/DiscoveryLab';
+import { PublicDiscovery } from './components/PublicDiscovery';
 import { type NoesisAnalysis, type NoesisScreen } from './lib/types';
-import { DISCOVERY_LAB_PATH, LEGACY_APP_PATH } from './lib/appRoutes';
+import {
+  DISCOVERY_LAB_PATH,
+  LEGACY_APP_PATH,
+  PUBLIC_DISCOVERY_PATH,
+} from './lib/appRoutes';
 
 const queryClient = new QueryClient();
 
@@ -168,6 +173,7 @@ export default function App() {
             <Switch>
               <Route path={LEGACY_APP_PATH} component={NoesisApp} />
               <Route path={DISCOVERY_LAB_PATH} component={DiscoveryLab} />
+              <Route path={PUBLIC_DISCOVERY_PATH} component={PublicDiscovery} />
               <Route>
                 <div className="flex h-screen items-center justify-center bg-background text-foreground">
                   404 - Not Found

@@ -74,13 +74,13 @@ import {
 } from "./discoveryDeepSeekV1";
 import {
   V2_HYBRID_ENGINE_VERSION,
-  V2_HYBRID_IDENTITY_TIMEOUT_MS,
   V2_HYBRID_REASONING_EFFORT,
   V2_HYBRID_RESEARCH_MAX_CONCURRENCY,
+  V2_HYBRID_RESEARCH_MODEL,
   V2_HYBRID_STAGE1_MODEL,
   V2_HYBRID_STAGE3_MODEL,
   buildV2HybridFinalRequest,
-  createV2HybridIdentityRequestOptions,
+  buildV2HybridResearchRequest,
 } from "./discoveryHybridV2";
 
 export const DISCOVERY_ENGINE_VERSION = "discovery-engine-v1";
@@ -126,16 +126,20 @@ export function discoveryModelAllocationForVariant(
       stage3: FROZEN_V1_STAGE3_MODEL,
     };
   }
-  if (variant === "v1-deepseek-pro" || variant === "v2-hybrid") {
+  if (variant === "v2-hybrid") {
     return {
-      stage1:
-        variant === "v2-hybrid"
-          ? V2_HYBRID_STAGE1_MODEL
-          : FROZEN_V1_STAGE1_MODEL,
+      stage1: V2_HYBRID_STAGE1_MODEL,
+      identityVerification: "none",
+      candidateResearch: V2_HYBRID_RESEARCH_MODEL,
+      stage3: V2_HYBRID_STAGE3_MODEL,
+    };
+  }
+  if (variant === "v1-deepseek-pro") {
+    return {
+      stage1: FROZEN_V1_STAGE1_MODEL,
       identityVerification: DEEPSEEK_V1_MODEL,
       candidateResearch: DEEPSEEK_V1_MODEL,
-      stage3:
-        variant === "v2-hybrid" ? V2_HYBRID_STAGE3_MODEL : DEEPSEEK_V1_MODEL,
+      stage3: DEEPSEEK_V1_MODEL,
     };
   }
   return {
@@ -1436,142 +1440,6 @@ async function runDeepSeekV1IdentityVerification(
   };
 }
 
-const V2_HYBRID_DEGRADABLE_IDENTITY_FAILURES =
-  new Set<DiscoveryFailureCategory>([
-    "timeout",
-    "tool_call",
-    "search_provider",
-    "structured_output",
-    "schema_validation",
-    "malformed_model_output",
-    "source_validation",
-  ]);
-
-function identityStageMetricsFromState(
-  identity: NonNullable<DiscoveryExecutionState["identityVerification"]>,
-): DiscoveryStageMetrics {
-  return {
-    usage: identity.usage,
-    web_search_calls: identity.web_search_calls,
-    model_token_cost_usd: identity.model_token_cost_usd,
-    tool_cost_usd: identity.tool_cost_usd,
-    total_known_cost_usd: identity.total_known_cost_usd,
-    cost_usd: identity.cost_usd,
-    cost_reason: identity.cost_reason,
-  };
-}
-
-function unknownV2IdentityStageMetrics(
-  latencyMs: number,
-): DiscoveryStageMetrics {
-  return {
-    usage: {
-      ...emptyUsage(DEEPSEEK_V1_MODEL, "deepseek"),
-      latency_ms: latencyMs,
-    },
-    web_search_calls: 0,
-    model_token_cost_usd: null,
-    tool_cost_usd: null,
-    total_known_cost_usd: null,
-    cost_usd: null,
-    cost_reason:
-      "Identity verification usage was unavailable after safe degradation.",
-  };
-}
-
-async function runV2HybridIdentityVerification(
-  deepseek: DeepSeekClient,
-  stage1: DiscoveryStage1,
-  gatedCandidates: DiscoveryCandidate[],
-  state: DiscoveryExecutionState,
-): Promise<DiscoveryIdentityVerificationExecution> {
-  const started = Date.now();
-  try {
-    const execution = await runDeepSeekV1IdentityVerification(
-      deepseek,
-      stage1,
-      gatedCandidates,
-      state,
-      createV2HybridIdentityRequestOptions(V2_HYBRID_IDENTITY_TIMEOUT_MS),
-    );
-    return {
-      result: execution.result,
-      metrics: {
-        ...execution.metrics,
-        attempted: execution.metrics.ran,
-        usable: execution.result !== null,
-        degraded: false,
-        latency_ms: Date.now() - started,
-      },
-    };
-  } catch (error) {
-    const failureCategory = classifyDiscoveryFailure(error);
-    if (!V2_HYBRID_DEGRADABLE_IDENTITY_FAILURES.has(failureCategory)) {
-      throw error;
-    }
-
-    const latencyMs = Date.now() - started;
-    const priorIdentityState = state.identityVerification;
-    let knownMetrics = priorIdentityState
-      ? identityStageMetricsFromState(priorIdentityState)
-      : null;
-    if (
-      !knownMetrics &&
-      error instanceof DeepSeekDiscoveryError &&
-      error.response
-    ) {
-      knownMetrics = stageMetrics(
-        normalizeResponseUsage(error.response, latencyMs, "deepseek"),
-        countWebSearchCalls(error.response),
-      );
-      state.knownStage2Metrics.push(knownMetrics);
-    }
-    const stateMetrics =
-      knownMetrics ?? unknownV2IdentityStageMetrics(latencyMs);
-    const semanticRepair = priorIdentityState?.semantic_repair_attempted
-      ? {
-          semantic_repair_attempted: true,
-          semantic_repair_succeeded:
-            priorIdentityState.semantic_repair_succeeded ?? false,
-        }
-      : {};
-
-    state.identityVerification = {
-      ...stateMetrics,
-      completed: true,
-      status: null,
-      ...semanticRepair,
-      attempted: true,
-      usable: false,
-      degraded: true,
-      failure_category: failureCategory,
-      latency_ms: latencyMs,
-    };
-    state.lastCompletedStage = "identity_verification";
-
-    return {
-      result: null,
-      metrics: {
-        ran: true,
-        status: "not_run",
-        usage: knownMetrics?.usage ?? null,
-        web_search_calls: knownMetrics?.web_search_calls ?? 0,
-        model_token_cost_usd: knownMetrics?.model_token_cost_usd ?? null,
-        tool_cost_usd: knownMetrics?.tool_cost_usd ?? null,
-        total_known_cost_usd: knownMetrics?.total_known_cost_usd ?? null,
-        cost_usd: knownMetrics?.cost_usd ?? null,
-        cost_reason: knownMetrics?.cost_reason ?? stateMetrics.cost_reason,
-        ...semanticRepair,
-        attempted: true,
-        usable: false,
-        degraded: true,
-        failure_category: failureCategory,
-        latency_ms: latencyMs,
-      },
-    };
-  }
-}
-
 async function runSelectiveResearchWithState(
   openai: OpenAI,
   stage1: DiscoveryStage1,
@@ -1786,7 +1654,10 @@ function v2CandidateLocalFailure(
   error: unknown,
   candidate: DiscoveryCandidate,
 ): DiscoveryCandidateLocalFailure | null {
-  const classified = classifyDiscoveryFailure(error);
+  const classified =
+    error instanceof V2CandidateResearchError
+      ? error.category
+      : classifyDiscoveryFailure(error);
   const category: DiscoveryFailureCategory =
     classified === "structured_output" ? "malformed_model_output" : classified;
   const safeMessages: Partial<
@@ -1815,44 +1686,68 @@ function v2CandidateLocalFailure(
     : null;
 }
 
+class V2CandidateResearchError extends Error {
+  constructor(
+    readonly category: DiscoveryCandidateLocalFailureCategory,
+    message: string,
+    readonly response: Response,
+  ) {
+    super(message);
+    this.name = "V2CandidateResearchError";
+  }
+}
+
 async function executeV2HybridCandidateResearchCall(
-  deepseek: DeepSeekClient,
+  openai: OpenAI,
   stage1: DiscoveryStage1,
   candidate: DiscoveryCandidate,
-  identityVerification: DiscoveryIdentityVerification | null,
 ): Promise<{
   result: DiscoveryResearchResult;
   call: DiscoveryResearchCallMetrics;
   metrics: DiscoveryStageMetrics;
 }> {
-  const built = buildDeepSeekV1ResearchRequest(
-    stage1,
-    candidate,
-    identityVerification,
-  );
+  const built = buildV2HybridResearchRequest(stage1, candidate);
   const started = Date.now();
   let response: Response | undefined;
   try {
-    response = await createDeepSeekResponse(deepseek, built.request, true);
-    const usage = normalizeResponseUsage(
-      response,
-      Date.now() - started,
-      "deepseek",
-    );
+    response = await openai.responses.create(built.request);
+    const usage = normalizeResponseUsage(response, Date.now() - started);
     const metrics = stageMetrics(usage, countWebSearchCalls(response));
     const sources = extractValidatedSources(response);
     const cleaned = cleanResearchFinding(response.output_text);
+    const webSearchCalls = response.output.filter(
+      (item) => item.type === "web_search_call",
+    );
+    if (webSearchCalls.length === 0) {
+      throw new V2CandidateResearchError(
+        "tool_call",
+        "Candidate research did not execute the required hosted search",
+        response,
+      );
+    }
+    if (
+      webSearchCalls.some(
+        (item) => "status" in item && item.status !== "completed",
+      )
+    ) {
+      throw new V2CandidateResearchError(
+        "search_provider",
+        "Candidate hosted search did not complete",
+        response,
+      );
+    }
     if (!/^(ANSWERED|INSUFFICIENT)\s*:/i.test(response.output_text.trim())) {
-      throw new DeepSeekDiscoveryError(
-        "structured_output",
-        "DeepSeek candidate research omitted its required answer status",
-        undefined,
+      throw new V2CandidateResearchError(
+        "malformed_model_output",
+        "Candidate research omitted its required answer status",
         response,
       );
     }
     if (!cleaned.declaredInsufficient && sources.length === 0) {
-      throw new Error(
+      throw new V2CandidateResearchError(
+        "source_validation",
         "Candidate research returned no validated citations for an asserted answer",
+        response,
       );
     }
     const status = cleaned.declaredInsufficient ? "insufficient" : "answered";
@@ -1881,14 +1776,10 @@ async function executeV2HybridCandidateResearchCall(
     const localFailure = v2CandidateLocalFailure(error, candidate);
     const failedResponse =
       response ??
-      (error instanceof DeepSeekDiscoveryError ? error.response : undefined);
+      (error instanceof V2CandidateResearchError ? error.response : undefined);
     if (!localFailure || !failedResponse) throw error;
 
-    const usage = normalizeResponseUsage(
-      failedResponse,
-      Date.now() - started,
-      "deepseek",
-    );
+    const usage = normalizeResponseUsage(failedResponse, Date.now() - started);
     const metrics = stageMetrics(usage, countWebSearchCalls(failedResponse));
     const result = validateResearchResults(stage1, [
       {
@@ -1944,19 +1835,14 @@ async function mapWithBoundedConcurrency<T, R>(
 }
 
 async function runV2HybridSelectiveResearchWithState(
-  deepseek: DeepSeekClient,
+  openai: OpenAI,
   stage1: DiscoveryStage1,
   state: DiscoveryExecutionState,
 ): Promise<DiscoveryResearchExecution> {
   const gatedCandidates = stage1.candidates.filter(
     (candidate) => evaluateResearchGate(stage1, candidate).allowed,
   );
-  const identityVerification = await runV2HybridIdentityVerification(
-    deepseek,
-    stage1,
-    gatedCandidates,
-    state,
-  );
+  const identityVerification = identityNotRun();
 
   state.stageReached = "research";
   state.currentCandidateId = undefined;
@@ -1967,12 +1853,7 @@ async function runV2HybridSelectiveResearchWithState(
     V2_HYBRID_RESEARCH_MAX_CONCURRENCY,
     (candidate) => {
       state.attemptedResearchCalls += 1;
-      return executeV2HybridCandidateResearchCall(
-        deepseek,
-        stage1,
-        candidate,
-        identityVerification.result,
-      );
+      return executeV2HybridCandidateResearchCall(openai, stage1, candidate);
     },
   );
   const researchWallClockLatencyMs = Date.now() - researchStarted;
@@ -2468,7 +2349,7 @@ async function runDiscoveryPipelineWithState(
     : isDeepSeekV1
       ? await runDeepSeekV1SelectiveResearchWithState(deepseek!, stage1, state)
       : isV2Hybrid
-        ? await runV2HybridSelectiveResearchWithState(deepseek!, stage1, state)
+        ? await runV2HybridSelectiveResearchWithState(openai, stage1, state)
         : variant === "v1-batched-research"
           ? await runBatchedSelectiveResearchWithState(openai, stage1, state)
           : await runSelectiveResearchWithState(
@@ -2557,12 +2438,7 @@ async function runDiscoveryPipelineWithState(
       )
     : isV2Hybrid
       ? await openai.chat.completions.create(
-          buildV2HybridFinalRequest(
-            imageDataUrl,
-            stage1,
-            research.results,
-            research.identityVerification.result,
-          ),
+          buildV2HybridFinalRequest(imageDataUrl, stage1, research.results),
         )
       : await openai.chat.completions.create({
           model: modelAllocation.stage3,
@@ -2765,10 +2641,7 @@ export async function runDiscoveryPipeline(
   const pipelineStarted = Date.now();
   const timestamp = new Date().toISOString();
   const variant = options.variant ?? DEFAULT_DISCOVERY_ENGINE_VARIANT;
-  if (
-    (variant === "v1-deepseek-pro" || variant === "v2-hybrid") &&
-    !options.deepseekClient
-  ) {
+  if (variant === "v1-deepseek-pro" && !options.deepseekClient) {
     throw new Error(`DeepSeek client is required for ${variant}`);
   }
   const engineVersion = discoveryEngineVersionForVariant(variant);

@@ -2,17 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { DiscoveryStage1 } from "../../artifacts/api-server/src/lib/discoveryContracts";
 import {
-  DEEPSEEK_V1_MODEL,
-  type DeepSeekClient,
-} from "../../artifacts/api-server/src/lib/discoveryDeepSeekV1";
-import {
   V2_HYBRID_CACHE_REVISION,
   V2_HYBRID_ENGINE_VERSION,
   V2_HYBRID_FINAL_PROMPT,
-  V2_HYBRID_IDENTITY_TIMEOUT_MS,
+  V2_HYBRID_REASONING_EFFORT,
+  V2_HYBRID_RESEARCH_INSTRUCTIONS,
   V2_HYBRID_RESEARCH_MAX_CONCURRENCY,
+  V2_HYBRID_RESEARCH_MODEL,
   buildV2HybridFinalRequest,
-  createV2HybridIdentityRequestOptions,
+  buildV2HybridResearchRequest,
 } from "../../artifacts/api-server/src/lib/discoveryHybridV2";
 import {
   DiscoveryPipelineError,
@@ -44,26 +42,21 @@ interface CapturedChatRequest {
 interface CapturedResponseRequest {
   model?: unknown;
   input?: unknown;
-  text?: { format?: { name?: string } };
+  instructions?: unknown;
+  reasoning?: { effort?: unknown };
+  tools?: Array<{ type?: unknown; search_context_size?: unknown }>;
+  tool_choice?: unknown;
+  include?: unknown;
 }
 
-interface CapturedResponseOptions {
-  timeout?: number;
-  maxRetries?: number;
-  signal?: AbortSignal | null;
-}
-
-type IdentityMode =
-  | "unverified"
-  | "conflicted"
-  | "verified"
+type CandidateMode =
+  | "answered"
+  | "insufficient"
   | "no_search"
   | "incomplete_search"
-  | "timeout"
+  | "uncited"
   | "malformed"
-  | "repair_exhausted"
-  | "authentication"
-  | "provider_http";
+  | "api_error";
 
 const stage1: DiscoveryStage1 = {
   image_summary: "An engineered landscape with three visible anomalies.",
@@ -101,7 +94,7 @@ const stage1: DiscoveryStage1 = {
       research_needed: true,
       research_rationale:
         "Planning history could explain the visible boundary.",
-      identity_context_needed: false,
+      identity_context_needed: true,
     },
     {
       id: "c3",
@@ -124,85 +117,40 @@ const stage1: DiscoveryStage1 = {
       visible_evidence: [
         "A circular feature inside a rectilinear field system.",
       ],
-      observed_labels_or_numbers: [],
+      observed_labels_or_numbers: ["visible marker 1"],
       region_ids: ["r1"],
       confidence: 0.6,
       verification_would_help: true,
       relevant_question_ids: ["q1"],
     },
-  ],
-};
-
-const fiveCandidateStage1: DiscoveryStage1 = {
-  ...stage1,
-  image_summary: "An engineered landscape with five researchable features.",
-  candidates: [
-    ...stage1.candidates,
     {
-      id: "c4",
-      question_id: "q4",
-      visual_trigger: "A geometric water-land boundary encloses the fields.",
-      observation: "The boundary is straighter than the outer shoreline.",
+      id: "ih2",
+      proposed_identity: "An unrelated boundary identity",
+      identity_type: "place",
+      visible_evidence: ["The straight boundary."],
+      observed_labels_or_numbers: [],
       region_ids: ["r1"],
-      investigation_question:
-        "Is the visible boundary consistent with reclaimed-land engineering?",
-      research_needed: true,
-      research_rationale:
-        "Engineering context could explain the visible water-land geometry.",
-      identity_context_needed: true,
+      confidence: 0.4,
+      verification_would_help: true,
+      relevant_question_ids: ["q2"],
     },
     {
-      id: "c5",
-      question_id: "q5",
-      visual_trigger: "Drainage lines repeat across the field blocks.",
-      observation: "The lines form a coordinated landscape-scale system.",
+      id: "ih3",
+      proposed_identity: "A disabled identity lead",
+      identity_type: "place",
+      visible_evidence: ["The circle."],
+      observed_labels_or_numbers: [],
       region_ids: ["r1"],
-      investigation_question:
-        "What general mechanism could produce this repeated drainage pattern?",
-      research_needed: true,
-      research_rationale:
-        "External engineering evidence could reinterpret the repeated lines.",
-      identity_context_needed: true,
+      confidence: 0.2,
+      verification_would_help: false,
+      relevant_question_ids: [],
     },
   ],
 };
 
-const unresolvedIdentity = {
-  status: "unverified",
-  hypothesis_id: "ih1",
-  canonical_identity: null,
-  identity_type: null,
-  location: null,
-  verification_basis: "The exact place could not be established safely.",
-  confidence: 0.2,
-  match_evidence: [
-    {
-      basis: "generic_visual_similarity",
-      detail: "Several landscapes share this broad configuration.",
-    },
-  ],
-};
-
-const verifiedIdentity = {
-  status: "verified" as const,
-  hypothesis_id: "ih1",
-  canonical_identity: "Exact engineered landscape",
-  identity_type: "place" as const,
-  location: "Example region",
-  verification_basis: "An authoritative map identifies the configuration.",
-  confidence: 0.95,
-  match_evidence: [
-    {
-      basis: "geographic_configuration" as const,
-      detail: "The mapped configuration matches the visible arrangement.",
-    },
-  ],
-  sources: [{ title: "Identity source", url: "https://example.com/identity" }],
-};
-
-function chatResponse(content: unknown) {
+function chatResponse(model: string, content: unknown) {
   return {
-    model: FROZEN_V1_STAGE1_MODEL,
+    model,
     choices: [{ message: { content: JSON.stringify(content) } }],
     usage: {
       prompt_tokens: 100,
@@ -214,7 +162,7 @@ function chatResponse(content: unknown) {
   };
 }
 
-function deepSeekResponse(
+function researchResponse(
   outputText: string,
   options: {
     search?: boolean;
@@ -223,7 +171,7 @@ function deepSeekResponse(
   } = {},
 ) {
   return {
-    model: DEEPSEEK_V1_MODEL,
+    model: V2_HYBRID_RESEARCH_MODEL,
     output_text: outputText,
     output: [
       ...(options.search
@@ -259,7 +207,7 @@ function deepSeekResponse(
     ],
     usage: {
       input_tokens: 100,
-      input_tokens_details: { cached_tokens: 20, cache_write_tokens: 0 },
+      input_tokens_details: { cached_tokens: 20 },
       output_tokens: 40,
       output_tokens_details: { reasoning_tokens: 10 },
       total_tokens: 140,
@@ -276,7 +224,8 @@ function finalDiscovery(sourceUrl = "https://example.com/c1") {
         title: "The circle is functional infrastructure",
         visual_trigger: "The isolated circular feature beside the channel.",
         observation: "It interrupts the rectilinear field pattern.",
-        discovery: "Validated research explains the feature's function.",
+        discovery:
+          "Candidate-local research establishes the landscape identity and explains the feature's function.",
         why_it_matters: "The anomaly belongs to the engineered system.",
         explanation: "Its unusual geometry follows from that function.",
         reinterpretation: "Look back at the circle as working infrastructure.",
@@ -290,146 +239,91 @@ function finalDiscovery(sourceUrl = "https://example.com/c1") {
   };
 }
 
-function openAIClient(
-  requests: CapturedChatRequest[],
-  finalOutput: unknown = finalDiscovery(),
-  stage1Output: DiscoveryStage1 = stage1,
-) {
+function openAIClient(options: {
+  chatRequests?: CapturedChatRequest[];
+  responseRequests?: CapturedResponseRequest[];
+  finalOutput?: unknown;
+  stage1Output?: DiscoveryStage1;
+  candidateModes?: Partial<Record<string, CandidateMode>>;
+  concurrency?: { active: number; max: number };
+}) {
+  const chatRequests = options.chatRequests ?? [];
+  const responseRequests = options.responseRequests ?? [];
+  const candidateModes = options.candidateModes ?? {};
   return {
     chat: {
       completions: {
         create: async (request: CapturedChatRequest) => {
-          requests.push(request);
+          chatRequests.push(request);
           return chatResponse(
-            requests.length === 1 ? stage1Output : finalOutput,
+            String(request.model),
+            chatRequests.length === 1
+              ? (options.stage1Output ?? stage1)
+              : (options.finalOutput ?? finalDiscovery()),
           );
         },
+      },
+    },
+    responses: {
+      create: async (request: CapturedResponseRequest) => {
+        responseRequests.push(request);
+        const candidateId = String(request.input).match(
+          /CANDIDATE ID: (c\d)/,
+        )?.[1];
+        const mode = candidateModes[candidateId ?? ""] ?? "answered";
+        if (mode === "api_error") {
+          throw Object.assign(new Error("invalid OpenAI configuration"), {
+            status: 401,
+          });
+        }
+        if (options.concurrency) {
+          options.concurrency.active += 1;
+          options.concurrency.max = Math.max(
+            options.concurrency.max,
+            options.concurrency.active,
+          );
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          options.concurrency.active -= 1;
+        }
+        if (mode === "insufficient") {
+          return researchResponse(
+            "INSUFFICIENT: Trustworthy evidence did not establish the exact identity needed for this question.",
+            { search: true },
+          );
+        }
+        if (mode === "no_search") {
+          return researchResponse(
+            "ANSWERED: unsupported https://unsafe.example/private",
+          );
+        }
+        if (mode === "incomplete_search") {
+          return researchResponse("ANSWERED: incomplete search result", {
+            search: true,
+            searchStatus: "failed",
+          });
+        }
+        if (mode === "uncited") {
+          return researchResponse("ANSWERED: uncited assertion", {
+            search: true,
+          });
+        }
+        if (mode === "malformed") {
+          return researchResponse("Unscoped research prose", {
+            search: true,
+            sourceUrl: "https://example.com/unscoped",
+          });
+        }
+        const sourceUrl = `https://example.com/${candidateId}`;
+        return researchResponse(
+          `ANSWERED: Trustworthy evidence establishes A specific engineered landscape while answering ${candidateId}.`,
+          { search: true, sourceUrl },
+        );
       },
     },
   } as unknown as Parameters<typeof runDiscoveryPipeline>[0];
 }
 
-function deepSeekClient(
-  requests: CapturedResponseRequest[],
-  candidate2Mode: "no_search" | "uncited" | "malformed" = "no_search",
-  concurrency?: { active: number; max: number },
-  identityMode: IdentityMode = "unverified",
-  requestOptions: CapturedResponseOptions[] = [],
-) {
-  return {
-    responses: {
-      create: async (
-        request: CapturedResponseRequest,
-        options?: CapturedResponseOptions,
-      ) => {
-        requests.push(request);
-        requestOptions.push(options ?? {});
-        const formatName = request.text?.format?.name;
-        if (formatName === "noesis_discovery_identity_verification") {
-          if (identityMode === "authentication") {
-            throw Object.assign(new Error("invalid credential"), {
-              status: 401,
-            });
-          }
-          if (identityMode === "provider_http") {
-            throw Object.assign(new Error("invalid provider configuration"), {
-              status: 400,
-            });
-          }
-          if (identityMode === "timeout") {
-            throw Object.assign(new Error("Request was aborted."), {
-              name: "APIUserAbortError",
-            });
-          }
-          if (identityMode === "malformed") {
-            return deepSeekResponse("not-json", { search: true });
-          }
-          if (identityMode === "no_search") {
-            return deepSeekResponse(JSON.stringify(unresolvedIdentity));
-          }
-          if (identityMode === "incomplete_search") {
-            return deepSeekResponse(JSON.stringify(unresolvedIdentity), {
-              search: true,
-              searchStatus: "failed",
-            });
-          }
-          if (identityMode === "verified") {
-            return deepSeekResponse(
-              JSON.stringify({ ...verifiedIdentity, sources: undefined }),
-              {
-                search: true,
-                sourceUrl: "https://example.com/identity",
-              },
-            );
-          }
-          if (identityMode === "conflicted") {
-            return deepSeekResponse(
-              JSON.stringify({
-                ...unresolvedIdentity,
-                status: "conflicted",
-                verification_basis: "Sources did not resolve the identity.",
-              }),
-              { search: true },
-            );
-          }
-          if (identityMode === "repair_exhausted") {
-            return deepSeekResponse(
-              JSON.stringify({
-                ...unresolvedIdentity,
-                canonical_identity: "Unsafe exact identity",
-                identity_type: "place",
-              }),
-              { search: true },
-            );
-          }
-          return deepSeekResponse(JSON.stringify(unresolvedIdentity), {
-            search: true,
-          });
-        }
-        if (formatName === "noesis_discovery_identity_semantic_repair") {
-          return deepSeekResponse(
-            JSON.stringify({
-              ...unresolvedIdentity,
-              canonical_identity: "Still unsafe exact identity",
-              identity_type: "place",
-            }),
-          );
-        }
-        const candidateId = String(request.input).match(
-          /CANDIDATE ID: (c\d)/,
-        )?.[1];
-        if (concurrency) {
-          concurrency.active += 1;
-          concurrency.max = Math.max(concurrency.max, concurrency.active);
-          await new Promise((resolve) => setTimeout(resolve, 5));
-          concurrency.active -= 1;
-        }
-        if (candidateId === "c2") {
-          if (candidate2Mode === "no_search") {
-            return deepSeekResponse(
-              "ANSWERED: unsupported https://unsafe.example/private",
-            );
-          }
-          if (candidate2Mode === "malformed") {
-            return deepSeekResponse("Unscoped research prose", {
-              search: true,
-              sourceUrl: "https://example.com/unscoped",
-            });
-          }
-          return deepSeekResponse("ANSWERED: uncited assertion", {
-            search: true,
-          });
-        }
-        return deepSeekResponse(`ANSWERED: supported ${candidateId}`, {
-          search: true,
-          sourceUrl: `https://example.com/${candidateId}`,
-        });
-      },
-    },
-  } as unknown as DeepSeekClient;
-}
-
-test("V2 Hybrid allocation, selector, and cache identity are isolated", () => {
+test("V2 allocation, selector, and cache revision define the launch call graph", () => {
   assert.equal(isDiscoveryEngineVariant("v2-hybrid"), true);
   assert.equal(
     discoveryEngineVersionForVariant("v2-hybrid"),
@@ -437,8 +331,8 @@ test("V2 Hybrid allocation, selector, and cache identity are isolated", () => {
   );
   assert.deepEqual(discoveryModelAllocationForVariant("v2-hybrid"), {
     stage1: FROZEN_V1_STAGE1_MODEL,
-    identityVerification: DEEPSEEK_V1_MODEL,
-    candidateResearch: DEEPSEEK_V1_MODEL,
+    identityVerification: "none",
+    candidateResearch: V2_HYBRID_RESEARCH_MODEL,
     stage3: FROZEN_V1_STAGE3_MODEL,
   });
   assert.deepEqual(
@@ -450,76 +344,116 @@ test("V2 Hybrid allocation, selector, and cache identity are isolated", () => {
       ?.label,
     "V2 Hybrid — production candidate",
   );
+  assert.equal(V2_HYBRID_CACHE_REVISION, "v2-hybrid-v3");
   const v2Key = computeDiscoveryCacheKey(
     imageDataUrl,
     V2_HYBRID_ENGINE_VERSION,
   ).cacheKey;
-  assert.match(v2Key, new RegExp(V2_HYBRID_CACHE_REVISION));
+  assert.match(v2Key, /v2-hybrid-v3/);
   assert.notEqual(
     v2Key,
     computeDiscoveryCacheKey(imageDataUrl, FROZEN_V1_ENGINE_VERSION).cacheKey,
   );
 });
 
-test("V2 identity uses one shared 55-second no-retry deadline", async () => {
-  const options = createV2HybridIdentityRequestOptions(5);
-  assert.equal(V2_HYBRID_IDENTITY_TIMEOUT_MS, 55_000);
-  assert.equal(options.timeout, 5);
-  assert.equal(options.maxRetries, 0);
-  assert.ok(options.signal);
-  await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.equal(options.signal!.aborted, true);
+test("V2 Luna request passes only relevant identity hypotheses as unverified leads", () => {
+  const c1 = buildV2HybridResearchRequest(stage1, stage1.candidates[0]!);
+  assert.equal(c1.request.model, V2_HYBRID_RESEARCH_MODEL);
+  assert.deepEqual(c1.request.reasoning, { effort: "medium" });
+  assert.deepEqual(c1.request.tools, [
+    { type: "web_search", search_context_size: "medium" },
+  ]);
+  assert.equal(c1.request.tool_choice, "required");
+  assert.deepEqual(c1.relevantIdentityHypothesisIds, ["ih1"]);
+  assert.equal(c1.usedVerifiedIdentityContext, false);
+  assert.match(String(c1.request.input), /UNVERIFIED VISUAL IDENTITY/);
+  assert.match(String(c1.request.input), /A specific engineered landscape/);
+  assert.match(String(c1.request.input), /visible marker 1/);
+  assert.match(String(c1.request.input), /complete engineered landscape/i);
+  assert.doesNotMatch(String(c1.request.input), /unrelated boundary identity/i);
+  assert.doesNotMatch(String(c1.request.input), /disabled identity lead/i);
+  assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /not established facts/i);
+  assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /never assume/i);
+  assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /return INSUFFICIENT/i);
+
+  const c2 = buildV2HybridResearchRequest(stage1, stage1.candidates[1]!);
+  assert.deepEqual(c2.relevantIdentityHypothesisIds, ["ih2"]);
+  assert.match(String(c2.request.input), /unrelated boundary identity/i);
+  assert.doesNotMatch(
+    String(c2.request.input),
+    /A specific engineered landscape/,
+  );
 });
 
-test("real V2 identity search-provider failure degrades and all five candidates continue", async () => {
-  const openAIRequests: CapturedChatRequest[] = [];
-  const deepSeekRequests: CapturedResponseRequest[] = [];
-  const requestOptions: CapturedResponseOptions[] = [];
-  const concurrency = { active: 0, max: 0 };
+test("mocked end-to-end V2 is Sol image to Luna search to Sol image with no identity or DeepSeek call", async () => {
+  const chatRequests: CapturedChatRequest[] = [];
+  const responseRequests: CapturedResponseRequest[] = [];
+  let deepSeekCalls = 0;
   const result = await runDiscoveryPipeline(
-    openAIClient(openAIRequests, finalDiscovery(), fiveCandidateStage1),
+    openAIClient({
+      chatRequests,
+      responseRequests,
+      candidateModes: { c2: "insufficient" },
+    }),
     imageDataUrl,
     {
       variant: "v2-hybrid",
-      deepseekClient: deepSeekClient(
-        deepSeekRequests,
-        "no_search",
-        concurrency,
-        "incomplete_search",
-        requestOptions,
-      ),
+      deepseekClient: {
+        responses: {
+          create: async () => {
+            deepSeekCalls += 1;
+            throw new Error("DeepSeek must not be called by V2");
+          },
+        },
+      } as never,
     },
   );
 
-  assert.equal(result.version, V2_HYBRID_ENGINE_VERSION);
-  assert.equal(result.inspection.identity_verification, null);
-  assert.deepEqual(
-    {
-      ran: result.metrics.stage2.identity_verification.ran,
-      attempted: result.metrics.stage2.identity_verification.attempted,
-      usable: result.metrics.stage2.identity_verification.usable,
-      degraded: result.metrics.stage2.identity_verification.degraded,
-      category: result.metrics.stage2.identity_verification.failure_category,
-      status: result.metrics.stage2.identity_verification.status,
-    },
-    {
-      ran: true,
-      attempted: true,
-      usable: false,
-      degraded: true,
-      category: "search_provider",
-      status: "not_run",
-    },
-  );
-  assert.ok(result.metrics.stage2.identity_verification.usage);
+  assert.equal(deepSeekCalls, 0);
+  assert.equal(chatRequests.length, 2);
+  assert.equal(responseRequests.length, 3);
+  assert.equal(chatRequests[0]?.model, FROZEN_V1_STAGE1_MODEL);
+  assert.equal(chatRequests[0]?.reasoning_effort, "medium");
+  assert.equal(chatRequests[0]?.messages[0]?.content, FROZEN_V1_STAGE1_PROMPT);
+  assert.match(JSON.stringify(chatRequests[0]), /image_url.*high/);
   assert.ok(
-    (result.metrics.stage2.identity_verification.model_token_cost_usd ?? 0) > 0,
+    responseRequests.every(
+      (request) =>
+        request.model === V2_HYBRID_RESEARCH_MODEL &&
+        request.reasoning?.effort === V2_HYBRID_REASONING_EFFORT &&
+        request.tools?.[0]?.type === "web_search",
+    ),
   );
-  assert.equal(result.metrics.stage2.identity_verification.tool_cost_usd, null);
+  assert.equal(chatRequests[1]?.model, FROZEN_V1_STAGE3_MODEL);
+  assert.equal(chatRequests[1]?.reasoning_effort, "medium");
+  assert.match(JSON.stringify(chatRequests[1]), /image_url.*high/);
+  assert.match(JSON.stringify(chatRequests[1]), /UNVERIFIED STAGE-1/);
+  assert.match(
+    JSON.stringify(chatRequests[1]),
+    /A specific engineered landscape/,
+  );
+  assert.match(
+    JSON.stringify(chatRequests[1]),
+    /Trustworthy evidence establishes/,
+  );
 
-  assert.equal(deepSeekRequests.length, 6, "one identity plus five research");
-  assert.equal(result.metrics.stage2.candidate_research_api_calls, 5);
-  assert.equal(result.inspection.research_results.length, 5);
+  assert.equal(result.inspection.identity_verification, null);
+  assert.deepEqual(result.metrics.stage2.identity_verification, {
+    ran: false,
+    status: "not_run",
+    usage: null,
+    web_search_calls: 0,
+    model_token_cost_usd: null,
+    tool_cost_usd: 0,
+    total_known_cost_usd: null,
+    cost_usd: null,
+    cost_reason: null,
+  });
+  assert.equal(result.metrics.stage2.candidate_research_model, "gpt-5.6-luna");
+  assert.equal(
+    result.metrics.stage2.candidate_calls_using_verified_identity,
+    0,
+  );
   assert.deepEqual(
     result.inspection.research_results.map((item) => [
       item.candidate_id,
@@ -529,196 +463,30 @@ test("real V2 identity search-provider failure degrades and all five candidates 
       ["c1", "answered"],
       ["c2", "insufficient"],
       ["c3", "answered"],
-      ["c4", "answered"],
-      ["c5", "answered"],
     ],
   );
-  assert.equal(concurrency.max, 3);
-  assert.equal(result.metrics.stage2.research_max_concurrency, 3);
-
-  assert.equal(requestOptions[0]?.timeout, V2_HYBRID_IDENTITY_TIMEOUT_MS);
-  assert.equal(requestOptions[0]?.maxRetries, 0);
-  assert.ok(requestOptions[0]?.signal);
-  assert.ok(
-    requestOptions.slice(1).every((options) => options.timeout === undefined),
-    "candidate research timeout behavior must remain unchanged",
-  );
-  const c1Request = deepSeekRequests.find((request) =>
-    String(request.input).includes("CANDIDATE ID: c1"),
-  );
-  assert.match(
-    String(c1Request?.input),
-    /IDENTITY VERIFICATION STATUS: not_run/,
-  );
-  assert.match(
-    String(c1Request?.input),
-    /No verified identity context is available/,
-  );
-
-  assert.equal(openAIRequests.length, 2);
-  const finalRequest = JSON.stringify(openAIRequests[1]);
-  assert.match(finalRequest, /image_url.*high/);
-  assert.match(finalRequest, /supported c1/);
-  assert.match(finalRequest, /safely marked insufficient/);
-  assert.match(finalRequest, /IDENTITY VERIFICATION RESULT:\\nnull/);
-  assert.doesNotMatch(
-    finalRequest,
-    /Exact engineered landscape|example\.com\/identity/,
-  );
-  assert.ok((result.metrics.total_known_cost_usd ?? 0) > 0);
   assert.equal(result.discoveries.length, 1);
-});
-
-test("V2 degrades bounded identity failures without losing known or unknown cost semantics", async () => {
-  const cases: Array<{
-    mode: IdentityMode;
-    category: string;
-    usageKnown: boolean;
-  }> = [
-    { mode: "no_search", category: "tool_call", usageKnown: true },
-    { mode: "timeout", category: "timeout", usageKnown: false },
-    {
-      mode: "malformed",
-      category: "structured_output",
-      usageKnown: true,
-    },
-    {
-      mode: "repair_exhausted",
-      category: "structured_output",
-      usageKnown: true,
-    },
-  ];
-
-  for (const fixture of cases) {
-    const requests: CapturedResponseRequest[] = [];
-    const result = await runDiscoveryPipeline(openAIClient([]), imageDataUrl, {
-      variant: "v2-hybrid",
-      deepseekClient: deepSeekClient(
-        requests,
-        "no_search",
-        undefined,
-        fixture.mode,
-      ),
-    });
-    const identity = result.metrics.stage2.identity_verification;
-    assert.equal(identity.degraded, true, fixture.mode);
-    assert.equal(identity.usable, false, fixture.mode);
-    assert.equal(identity.failure_category, fixture.category, fixture.mode);
-    assert.equal(result.inspection.identity_verification, null, fixture.mode);
-    assert.equal(
-      result.metrics.stage2.candidate_research_api_calls,
-      3,
-      fixture.mode,
-    );
-    assert.equal(result.discoveries.length, 1, fixture.mode);
-    assert.equal(Boolean(identity.usage), fixture.usageKnown, fixture.mode);
-    if (fixture.usageKnown) {
-      assert.ok((identity.model_token_cost_usd ?? 0) > 0, fixture.mode);
-    } else {
-      assert.equal(identity.model_token_cost_usd, null, fixture.mode);
-      assert.equal(identity.tool_cost_usd, null, fixture.mode);
-      assert.equal(identity.total_known_cost_usd, null, fixture.mode);
-      assert.ok(
-        (result.metrics.total_known_cost_usd ?? 0) > 0,
-        "known Sol/research subtotal must survive unknown identity cost",
-      );
-    }
-    if (fixture.mode === "repair_exhausted") {
-      assert.equal(identity.semantic_repair_attempted, true);
-      assert.equal(identity.semantic_repair_succeeded, false);
-      assert.equal(
-        requests.filter(
-          (request) =>
-            request.text?.format?.name ===
-            "noesis_discovery_identity_semantic_repair",
-        ).length,
-        1,
-      );
-    }
-  }
-});
-
-test("valid unresolved and verified V2 identity results preserve established semantics", async () => {
-  for (const mode of ["unverified", "conflicted", "verified"] as const) {
-    const requests: CapturedResponseRequest[] = [];
-    const result = await runDiscoveryPipeline(openAIClient([]), imageDataUrl, {
-      variant: "v2-hybrid",
-      deepseekClient: deepSeekClient(requests, "no_search", undefined, mode),
-    });
-    const identity = result.metrics.stage2.identity_verification;
-    assert.equal(identity.degraded, false, mode);
-    assert.equal(identity.usable, true, mode);
-    assert.equal(identity.status, mode, mode);
-    assert.equal(result.inspection.identity_verification?.status, mode, mode);
-    const c1Request = requests.find((request) =>
-      String(request.input).includes("CANDIDATE ID: c1"),
-    );
-    if (mode === "verified") {
-      assert.match(String(c1Request?.input), /VERIFIED IDENTITY CONTEXT/);
-      assert.match(String(c1Request?.input), /Exact engineered landscape/);
-      assert.equal(
-        result.metrics.stage2.candidate_calls_using_verified_identity,
-        1,
-      );
-    } else {
-      assert.match(
-        String(c1Request?.input),
-        new RegExp(`IDENTITY VERIFICATION STATUS: ${mode}`),
-      );
-      assert.equal(
-        result.metrics.stage2.candidate_calls_using_verified_identity,
-        0,
-      );
-    }
-  }
-});
-
-test("V2 keeps authentication and global provider configuration failures fatal", async () => {
-  for (const fixture of [
-    { mode: "authentication", category: "authentication" },
-    { mode: "provider_http", category: "provider_http" },
-  ] as const) {
-    const openAIRequests: CapturedChatRequest[] = [];
-    const deepSeekRequests: CapturedResponseRequest[] = [];
-    await assert.rejects(
-      () =>
-        runDiscoveryPipeline(openAIClient(openAIRequests), imageDataUrl, {
-          variant: "v2-hybrid",
-          deepseekClient: deepSeekClient(
-            deepSeekRequests,
-            "no_search",
-            undefined,
-            fixture.mode,
-          ),
-        }),
-      (error: unknown) => {
-        assert.ok(error instanceof DiscoveryPipelineError);
-        assert.equal(error.diagnostic.failed_stage, "identity_verification");
-        assert.equal(error.diagnostic.category, fixture.category);
-        return true;
-      },
-    );
-    assert.equal(openAIRequests.length, 1, fixture.mode);
-    assert.equal(deepSeekRequests.length, 1, fixture.mode);
-  }
-});
-
-test("V2 final Sol request is multimodal and carries only structured safe evidence", () => {
-  const request = buildV2HybridFinalRequest(
-    imageDataUrl,
-    stage1,
-    [
-      {
-        candidate_id: "c1",
-        question_id: "q1",
-        question: stage1.candidates[0]!.investigation_question,
-        status: "answered",
-        finding: "Validated finding",
-        sources: [{ title: "C1", url: "https://example.com/c1" }],
-      },
-    ],
-    verifiedIdentity,
+  assert.deepEqual(result.inspection.discovery_candidates.d1, ["c1"]);
+  assert.equal(
+    result.discoveries[0]?.sources[0]?.url,
+    "https://example.com/c1",
   );
+  assert.equal(result.metrics.stage2.web_search_calls, 3);
+  assert.ok((result.metrics.stage2.tool_cost_usd ?? 0) > 0);
+  assert.ok((result.metrics.total_known_cost_usd ?? 0) > 0);
+});
+
+test("V2 final request keeps hypotheses unverified and returns to the original image", () => {
+  const request = buildV2HybridFinalRequest(imageDataUrl, stage1, [
+    {
+      candidate_id: "c1",
+      question_id: "q1",
+      question: stage1.candidates[0]!.investigation_question,
+      status: "answered",
+      finding: "Research established the identity for this candidate.",
+      sources: [{ title: "C1", url: "https://example.com/c1" }],
+    },
+  ]);
   assert.equal(request.model, FROZEN_V1_STAGE3_MODEL);
   assert.equal(request.reasoning_effort, "medium");
   assert.equal(request.messages[0]?.content, V2_HYBRID_FINAL_PROMPT);
@@ -729,147 +497,117 @@ test("V2 final Sol request is multimodal and carries only structured safe eviden
     image_url: { url: imageDataUrl, detail: "high" },
   });
   const text = JSON.stringify(content?.[0]);
-  assert.match(text, /Validated finding/);
-  assert.match(text, /Exact engineered landscape/);
-  assert.match(text, /applicable_candidate_ids/);
-  assert.match(text, /c1/);
+  assert.match(text, /SAFE LUNA CANDIDATE RESEARCH RESULTS/);
+  assert.match(text, /CANDIDATE RESEARCH STATUSES/);
+  assert.match(text, /UNVERIFIED STAGE-1/);
+  assert.match(V2_HYBRID_FINAL_PROMPT, /applicable answered candidate/i);
+  assert.match(V2_HYBRID_FINAL_PROMPT, /validated sources/i);
 });
 
-test("mixed V2 run survives candidate-local no-search failure and returns to the image", async () => {
-  const openAIRequests: CapturedChatRequest[] = [];
-  const deepSeekRequests: CapturedResponseRequest[] = [];
-  const concurrency = { active: 0, max: 0 };
-  const result = await runDiscoveryPipeline(
-    openAIClient(openAIRequests),
-    imageDataUrl,
-    {
-      variant: "v2-hybrid",
-      deepseekClient: deepSeekClient(
-        deepSeekRequests,
-        "no_search",
-        concurrency,
+test("unsupported Stage-1 identity cannot become a researched final fact", async () => {
+  const unsupportedIdentityOutput = {
+    discoveries: [
+      {
+        ...finalDiscovery().discoveries[0],
+        id: "d2",
+        title: "The boundary identifies the exact place",
+        discovery:
+          "The unverified boundary hypothesis identifies the exact place.",
+        candidate_ids: ["c2"],
+        sources: [],
+      },
+    ],
+  };
+  await assert.rejects(
+    () =>
+      runDiscoveryPipeline(
+        openAIClient({
+          candidateModes: { c2: "insufficient" },
+          finalOutput: unsupportedIdentityOutput,
+        }),
+        imageDataUrl,
+        { variant: "v2-hybrid" },
       ),
+    (error: unknown) => {
+      assert.ok(error instanceof DiscoveryPipelineError);
+      assert.equal(error.diagnostic.failed_stage, "validation");
+      assert.equal(error.diagnostic.category, "source_validation");
+      return true;
     },
   );
-
-  assert.equal(result.version, V2_HYBRID_ENGINE_VERSION);
-  assert.equal(openAIRequests.length, 2, "Sol must own Stage 1 and final only");
-  assert.equal(openAIRequests[0]?.model, FROZEN_V1_STAGE1_MODEL);
-  assert.equal(openAIRequests[0]?.reasoning_effort, "medium");
-  assert.equal(
-    openAIRequests[0]?.messages[0]?.content,
-    FROZEN_V1_STAGE1_PROMPT,
-  );
-  assert.match(JSON.stringify(openAIRequests[0]), /image_url.*high/);
-  assert.equal(openAIRequests[1]?.model, FROZEN_V1_STAGE3_MODEL);
-  assert.equal(openAIRequests[1]?.reasoning_effort, "medium");
-  assert.match(JSON.stringify(openAIRequests[1]), /image_url.*high/);
-  assert.match(JSON.stringify(openAIRequests[1]), /supported c1/);
-  assert.match(JSON.stringify(openAIRequests[1]), /supported c3/);
-  assert.match(JSON.stringify(openAIRequests[1]), /safely marked insufficient/);
-  assert.doesNotMatch(JSON.stringify(openAIRequests[1]), /unsafe\.example/);
-
-  assert.equal(deepSeekRequests.length, 4);
-  assert.ok(
-    deepSeekRequests.every((request) => request.model === DEEPSEEK_V1_MODEL),
-  );
-  assert.equal(
-    deepSeekRequests.filter(
-      (request) =>
-        request.text?.format?.name === "noesis_discovery_identity_verification",
-    ).length,
-    1,
-  );
-  assert.equal(result.inspection.identity_verification?.status, "unverified");
-  assert.equal(result.metrics.stage2.candidate_research_api_calls, 3);
-  assert.equal(result.metrics.stage2.answered_candidates, 2);
-  assert.equal(result.metrics.stage2.insufficient_candidates, 1);
-  assert.equal(result.metrics.stage2.candidate_local_failed_candidates, 1);
-  assert.equal(
-    result.metrics.stage2.candidate_local_failures?.[0]?.category,
-    "tool_call",
-  );
-  assert.equal(
-    result.inspection.research_results.find(
-      (item) => item.candidate_id === "c2",
-    )?.status,
-    "insufficient",
-  );
-  assert.equal(result.metrics.stage2.calls.length, 3);
-  assert.ok(
-    (result.metrics.stage2.calls.find((call) => call.candidate_id === "c2")
-      ?.model_token_cost_usd ?? 0) > 0,
-  );
-  assert.equal(result.metrics.stage2.tool_cost_usd, null);
-  assert.ok((result.metrics.total_known_cost_usd ?? 0) > 0);
-  assert.equal(
-    result.metrics.stage2.research_max_concurrency,
-    V2_HYBRID_RESEARCH_MAX_CONCURRENCY,
-  );
-  assert.equal(concurrency.max, 3);
-  assert.ok(concurrency.max <= V2_HYBRID_RESEARCH_MAX_CONCURRENCY);
-  assert.ok((result.metrics.stage2.research_wall_clock_latency_ms ?? 0) >= 5);
-  assert.equal(result.discoveries.length, 1);
-  assert.equal(
-    result.discoveries[0]?.sources[0]?.url,
-    "https://example.com/c1",
-  );
-  assert.doesNotMatch(JSON.stringify(result), /unsafe\.example|private/);
 });
 
-test("candidate-local uncited answer does not abort or contaminate siblings", async () => {
-  const result = await runDiscoveryPipeline(openAIClient([]), imageDataUrl, {
-    variant: "v2-hybrid",
-    deepseekClient: deepSeekClient([], "uncited"),
-  });
-  assert.deepEqual(
-    result.inspection.research_results.map((item) => [
-      item.candidate_id,
-      item.status,
-      item.sources.map((source) => source.url),
-    ]),
-    [
-      ["c1", "answered", ["https://example.com/c1"]],
-      ["c2", "insufficient", []],
-      ["c3", "answered", ["https://example.com/c3"]],
-    ],
-  );
-  assert.equal(
-    result.metrics.stage2.candidate_local_failures?.[0]?.category,
-    "source_validation",
-  );
+test("candidate-local Luna failures continue siblings with concurrency-three and source ownership", async () => {
+  for (const [mode, category] of [
+    ["no_search", "tool_call"],
+    ["incomplete_search", "search_provider"],
+    ["uncited", "source_validation"],
+    ["malformed", "malformed_model_output"],
+  ] as const) {
+    const concurrency = { active: 0, max: 0 };
+    const result = await runDiscoveryPipeline(
+      openAIClient({
+        candidateModes: { c2: mode },
+        concurrency,
+      }),
+      imageDataUrl,
+      { variant: "v2-hybrid" },
+    );
+    assert.equal(result.metrics.stage2.candidate_research_api_calls, 3, mode);
+    assert.equal(result.metrics.stage2.answered_candidates, 2, mode);
+    assert.equal(result.metrics.stage2.insufficient_candidates, 1, mode);
+    assert.equal(
+      result.metrics.stage2.candidate_local_failures?.[0]?.category,
+      category,
+      mode,
+    );
+    assert.deepEqual(
+      result.inspection.research_results.find(
+        (item) => item.candidate_id === "c2",
+      )?.sources,
+      [],
+      mode,
+    );
+    assert.equal(
+      result.inspection.research_results.find(
+        (item) => item.candidate_id === "c1",
+      )?.sources[0]?.url,
+      "https://example.com/c1",
+      mode,
+    );
+    assert.equal(concurrency.max, V2_HYBRID_RESEARCH_MAX_CONCURRENCY, mode);
+    assert.ok(concurrency.max <= V2_HYBRID_RESEARCH_MAX_CONCURRENCY);
+    assert.equal(result.metrics.stage2.research_max_concurrency, 3);
+    assert.doesNotMatch(JSON.stringify(result), /unsafe\.example|private/);
+  }
 });
 
-test("candidate-local malformed answer is discarded and safely diagnosed", async () => {
-  const result = await runDiscoveryPipeline(openAIClient([]), imageDataUrl, {
-    variant: "v2-hybrid",
-    deepseekClient: deepSeekClient([], "malformed"),
-  });
-  const candidate = result.inspection.research_results.find(
-    (item) => item.candidate_id === "c2",
+test("global OpenAI configuration failure remains fatal", async () => {
+  await assert.rejects(
+    () =>
+      runDiscoveryPipeline(
+        openAIClient({ candidateModes: { c1: "api_error" } }),
+        imageDataUrl,
+        { variant: "v2-hybrid" },
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof DiscoveryPipelineError);
+      assert.equal(error.diagnostic.failed_stage, "research");
+      assert.equal(error.diagnostic.category, "api_error");
+      return true;
+    },
   );
-  assert.equal(candidate?.status, "insufficient");
-  assert.deepEqual(candidate?.sources, []);
-  assert.equal(
-    result.metrics.stage2.candidate_local_failures?.[0]?.category,
-    "malformed_model_output",
-  );
-  assert.doesNotMatch(JSON.stringify(result), /Unscoped research prose/);
 });
 
 test("V2 final validation rejects arbitrary Sol-typed sources", async () => {
   await assert.rejects(
     () =>
       runDiscoveryPipeline(
-        openAIClient(
-          [],
-          finalDiscovery("https://untrusted.example/fabricated"),
-        ),
+        openAIClient({
+          finalOutput: finalDiscovery("https://untrusted.example/fabricated"),
+        }),
         imageDataUrl,
-        {
-          variant: "v2-hybrid",
-          deepseekClient: deepSeekClient([]),
-        },
+        { variant: "v2-hybrid" },
       ),
     (error: unknown) => {
       assert.ok(error instanceof DiscoveryPipelineError);

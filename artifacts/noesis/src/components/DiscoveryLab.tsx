@@ -421,11 +421,19 @@ export function DiscoveryLab() {
                 </div>
                 <p>{result.inspection.stage1.image_summary}</p>
                 <div className="rounded-md border border-border bg-background p-3">
+                  {result.version === "discovery-engine-v2-hybrid" && (
+                    <p>
+                      <strong className="text-foreground">Call graph:</strong>{" "}
+                      Sol Stage 1 → Luna candidate research → Sol final
+                    </p>
+                  )}
                   <p>
                     <strong className="text-foreground">
                       Identity verification:
                     </strong>{" "}
-                    {result.metrics.stage2.identity_verification.status}
+                    {result.version === "discovery-engine-v2-hybrid"
+                      ? "folded into candidate research / not run"
+                      : result.metrics.stage2.identity_verification.status}
                   </p>
                   {result.metrics.stage2.identity_verification.degraded && (
                     <p>
@@ -440,15 +448,24 @@ export function DiscoveryLab() {
                       . Candidate research continued without verified identity.
                     </p>
                   )}
-                  <p>
-                    <strong className="text-foreground">
-                      Candidate calls using verified identity:
-                    </strong>{" "}
-                    {
-                      result.metrics.stage2
-                        .candidate_calls_using_verified_identity
-                    }
-                  </p>
+                  {result.version === "discovery-engine-v2-hybrid" ? (
+                    <p>
+                      <strong className="text-foreground">
+                        Stage-1 identity hypotheses:
+                      </strong>{" "}
+                      candidate-local unverified search leads
+                    </p>
+                  ) : (
+                    <p>
+                      <strong className="text-foreground">
+                        Candidate calls using verified identity:
+                      </strong>{" "}
+                      {
+                        result.metrics.stage2
+                          .candidate_calls_using_verified_identity
+                      }
+                    </p>
+                  )}
                   <p>
                     <strong className="text-foreground">
                       Candidate research API calls:

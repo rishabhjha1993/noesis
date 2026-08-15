@@ -142,7 +142,7 @@ export function startDiscoveryJob(
   const cacheIdentifier = imageHash.slice(0, 12);
   const openai = new OpenAI({ apiKey });
   const deepseek =
-    (variant === "v1-deepseek-pro" || variant === "v2-hybrid") && deepseekApiKey
+    variant === "v1-deepseek-pro" && deepseekApiKey
       ? createDeepSeekClient(deepseekApiKey)
       : undefined;
 

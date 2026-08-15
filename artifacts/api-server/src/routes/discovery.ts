@@ -77,7 +77,10 @@ router.post("/discovery", analysisRateLimit, (req, res) => {
     return;
   }
   const deepseekApiKey = process.env["DEEPSEEK_API_KEY"];
-  if (engineVariant === "v1-deepseek-pro" && !deepseekApiKey) {
+  if (
+    (engineVariant === "v1-deepseek-pro" || engineVariant === "v2-hybrid") &&
+    !deepseekApiKey
+  ) {
     res.status(502).json({ error: "Discovery service is not configured" });
     return;
   }

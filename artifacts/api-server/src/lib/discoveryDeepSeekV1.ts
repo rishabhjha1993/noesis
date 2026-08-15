@@ -57,15 +57,18 @@ export type DeepSeekFailureCategory =
 
 export class DeepSeekDiscoveryError extends Error {
   readonly category: DeepSeekFailureCategory;
+  readonly response?: Response;
 
   constructor(
     category: DeepSeekFailureCategory,
     message: string,
     cause?: unknown,
+    response?: Response,
   ) {
     super(message, { cause });
     this.name = "DeepSeekDiscoveryError";
     this.category = category;
+    this.response = response;
   }
 }
 
@@ -267,12 +270,16 @@ export async function createDeepSeekResponse(
       throw new DeepSeekDiscoveryError(
         "tool_call",
         "DeepSeek did not execute the required web-search tool",
+        undefined,
+        response,
       );
     }
     if (searches.some((item) => item.status !== "completed")) {
       throw new DeepSeekDiscoveryError(
         "search_provider",
         "DeepSeek web search did not complete",
+        undefined,
+        response,
       );
     }
   }

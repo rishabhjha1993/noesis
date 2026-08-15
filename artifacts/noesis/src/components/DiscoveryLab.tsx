@@ -461,6 +461,29 @@ export function DiscoveryLab() {
                         result.metrics.stage2.cost_usd,
                     )}
                   </p>
+                  {result.metrics.stage2.research_wall_clock_latency_ms !==
+                    undefined && (
+                    <p>
+                      <strong className="text-foreground">
+                        Research pool:
+                      </strong>{" "}
+                      {seconds(
+                        result.metrics.stage2.research_wall_clock_latency_ms,
+                      )}{" "}
+                      wall clock · max concurrency{" "}
+                      {result.metrics.stage2.research_max_concurrency}
+                    </p>
+                  )}
+                  {result.metrics.stage2.candidate_local_failures?.map(
+                    (failure) => (
+                      <p key={`${failure.candidate_id}:${failure.question_id}`}>
+                        <strong className="text-foreground">
+                          {failure.candidate_id} local failure:
+                        </strong>{" "}
+                        {failure.category} — {failure.safe_message}
+                      </p>
+                    ),
+                  )}
                   {result.metrics.stage2.batch && (
                     <>
                       <p>
@@ -737,7 +760,7 @@ export function DiscoveryLab() {
                     )}
                   </span>
                   <span>
-                    Known total cost:{" "}
+                    Known cost subtotal:{" "}
                     {money(
                       failureDiagnostic.partial_metrics.known_total_cost_usd,
                     )}

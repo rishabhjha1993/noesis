@@ -6,6 +6,7 @@ export const DISCOVERY_ENGINE_VARIANTS = [
   "v1-batched-research",
   "v1-luna-research",
   "v1-deepseek-pro",
+  "v2-hybrid",
 ] as const;
 export type DiscoveryEngineVariant = (typeof DISCOVERY_ENGINE_VARIANTS)[number];
 export const DISCOVERY_ENGINE_OPTIONS: ReadonlyArray<{
@@ -23,6 +24,7 @@ export const DISCOVERY_ENGINE_OPTIONS: ReadonlyArray<{
     value: "v1-deepseek-pro",
     label: "V1 DeepSeek Pro (experimental)",
   },
+  { value: "v2-hybrid", label: "V2 Hybrid — production candidate" },
 ];
 
 export interface DiscoveryRegion {
@@ -146,6 +148,19 @@ export interface DiscoveryResearchCallMetrics extends DiscoveryStageMetrics {
   question_id: string;
   status: "answered" | "insufficient";
   used_verified_identity_context: boolean;
+  candidate_local_failure?: DiscoveryCandidateLocalFailure;
+}
+
+export interface DiscoveryCandidateLocalFailure {
+  candidate_id: string;
+  question_id: string;
+  category:
+    | "tool_call"
+    | "search_provider"
+    | "source_validation"
+    | "schema_validation"
+    | "malformed_model_output";
+  safe_message: string;
 }
 
 export interface DiscoveryIdentityVerificationMetrics {
@@ -276,6 +291,10 @@ export interface DiscoveryRunResult {
       candidate_research_api_calls: number;
       answered_candidates: number;
       insufficient_candidates: number;
+      candidate_local_failed_candidates?: number;
+      candidate_local_failures?: DiscoveryCandidateLocalFailure[];
+      research_wall_clock_latency_ms?: number;
+      research_max_concurrency?: number;
       calls: DiscoveryResearchCallMetrics[];
       batch: DiscoveryBatchResearchMetrics | null;
     };

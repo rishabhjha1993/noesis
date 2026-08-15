@@ -71,6 +71,14 @@ import {
   recoverableDeepSeekIdentityContradiction,
   type DeepSeekClient,
 } from "./discoveryDeepSeekV1";
+import {
+  V2_HYBRID_ENGINE_VERSION,
+  V2_HYBRID_REASONING_EFFORT,
+  V2_HYBRID_RESEARCH_MAX_CONCURRENCY,
+  V2_HYBRID_STAGE1_MODEL,
+  V2_HYBRID_STAGE3_MODEL,
+  buildV2HybridFinalRequest,
+} from "./discoveryHybridV2";
 
 export const DISCOVERY_ENGINE_VERSION = "discovery-engine-v1";
 export const DISCOVERY_BATCHED_RESEARCH_ENGINE_VERSION =
@@ -82,7 +90,8 @@ export type DiscoveryEngineVariant =
   | "v1-frozen"
   | "v1-batched-research"
   | "v1-luna-research"
-  | "v1-deepseek-pro";
+  | "v1-deepseek-pro"
+  | "v2-hybrid";
 export const DEFAULT_DISCOVERY_ENGINE_VARIANT: DiscoveryEngineVariant = "v1";
 export const DISCOVERY_STAGE1_MODEL = "gpt-5.6-sol";
 export const DISCOVERY_STAGE2_MODEL = "gpt-5.6-terra";
@@ -114,12 +123,16 @@ export function discoveryModelAllocationForVariant(
       stage3: FROZEN_V1_STAGE3_MODEL,
     };
   }
-  if (variant === "v1-deepseek-pro") {
+  if (variant === "v1-deepseek-pro" || variant === "v2-hybrid") {
     return {
-      stage1: FROZEN_V1_STAGE1_MODEL,
+      stage1:
+        variant === "v2-hybrid"
+          ? V2_HYBRID_STAGE1_MODEL
+          : FROZEN_V1_STAGE1_MODEL,
       identityVerification: DEEPSEEK_V1_MODEL,
       candidateResearch: DEEPSEEK_V1_MODEL,
-      stage3: DEEPSEEK_V1_MODEL,
+      stage3:
+        variant === "v2-hybrid" ? V2_HYBRID_STAGE3_MODEL : DEEPSEEK_V1_MODEL,
     };
   }
   return {
@@ -144,6 +157,7 @@ export function discoveryEngineVersionForVariant(
     return DISCOVERY_LUNA_RESEARCH_ENGINE_VERSION;
   }
   if (variant === "v1-deepseek-pro") return DEEPSEEK_V1_ENGINE_VERSION;
+  if (variant === "v2-hybrid") return V2_HYBRID_ENGINE_VERSION;
   return DISCOVERY_ENGINE_VERSION;
 }
 
@@ -155,7 +169,8 @@ export function isDiscoveryEngineVariant(
     value === "v1-frozen" ||
     value === "v1-batched-research" ||
     value === "v1-luna-research" ||
-    value === "v1-deepseek-pro"
+    value === "v1-deepseek-pro" ||
+    value === "v2-hybrid"
   );
 }
 
@@ -271,6 +286,21 @@ export interface DiscoveryResearchCallMetrics extends DiscoveryStageMetrics {
   question_id: string;
   status: "answered" | "insufficient";
   used_verified_identity_context: boolean;
+  candidate_local_failure?: DiscoveryCandidateLocalFailure;
+}
+
+export type DiscoveryCandidateLocalFailureCategory =
+  | "tool_call"
+  | "search_provider"
+  | "source_validation"
+  | "schema_validation"
+  | "malformed_model_output";
+
+export interface DiscoveryCandidateLocalFailure {
+  candidate_id: string;
+  question_id: string;
+  category: DiscoveryCandidateLocalFailureCategory;
+  safe_message: string;
 }
 
 export interface DiscoveryIdentityVerificationMetrics {
@@ -334,6 +364,10 @@ export interface DiscoveryPipelineMetrics {
     candidate_research_api_calls: number;
     answered_candidates: number;
     insufficient_candidates: number;
+    candidate_local_failed_candidates?: number;
+    candidate_local_failures?: DiscoveryCandidateLocalFailure[];
+    research_wall_clock_latency_ms?: number;
+    research_max_concurrency?: number;
     calls: DiscoveryResearchCallMetrics[];
     batch: DiscoveryBatchResearchMetrics | null;
   };
@@ -1044,6 +1078,9 @@ export interface DiscoveryResearchExecution {
   identityIndependentCandidateResearchApiCalls: number;
   candidateResearchApiCalls: number;
   candidateCallsUsingVerifiedIdentity: number;
+  candidateLocalFailures?: DiscoveryCandidateLocalFailure[];
+  researchWallClockLatencyMs?: number;
+  researchMaxConcurrency?: number;
   batchMetrics: DiscoveryBatchResearchMetrics | null;
   batchInspection: DiscoveryBatchInspection | null;
 }
@@ -1575,6 +1612,233 @@ async function runDeepSeekV1SelectiveResearchWithState(
   };
 }
 
+function v2CandidateLocalFailure(
+  error: unknown,
+  candidate: DiscoveryCandidate,
+): DiscoveryCandidateLocalFailure | null {
+  const classified = classifyDiscoveryFailure(error);
+  const category: DiscoveryFailureCategory =
+    classified === "structured_output" ? "malformed_model_output" : classified;
+  const safeMessages: Partial<
+    Record<DiscoveryCandidateLocalFailureCategory, string>
+  > = {
+    tool_call:
+      "The research provider did not execute the required hosted search; this candidate was safely marked insufficient.",
+    search_provider:
+      "The hosted search did not complete for this candidate; this candidate was safely marked insufficient.",
+    source_validation:
+      "The candidate response had no trustworthy candidate-local citations; this candidate was safely marked insufficient.",
+    schema_validation:
+      "The candidate response did not satisfy the research contract; this candidate was safely marked insufficient.",
+    malformed_model_output:
+      "The candidate response was not safely usable; this candidate was safely marked insufficient.",
+  };
+  const safeMessage =
+    safeMessages[category as DiscoveryCandidateLocalFailureCategory];
+  return safeMessage
+    ? {
+        candidate_id: candidate.id,
+        question_id: candidate.question_id,
+        category: category as DiscoveryCandidateLocalFailureCategory,
+        safe_message: safeMessage,
+      }
+    : null;
+}
+
+async function executeV2HybridCandidateResearchCall(
+  deepseek: DeepSeekClient,
+  stage1: DiscoveryStage1,
+  candidate: DiscoveryCandidate,
+  identityVerification: DiscoveryIdentityVerification | null,
+): Promise<{
+  result: DiscoveryResearchResult;
+  call: DiscoveryResearchCallMetrics;
+  metrics: DiscoveryStageMetrics;
+}> {
+  const built = buildDeepSeekV1ResearchRequest(
+    stage1,
+    candidate,
+    identityVerification,
+  );
+  const started = Date.now();
+  let response: Response | undefined;
+  try {
+    response = await createDeepSeekResponse(deepseek, built.request, true);
+    const usage = normalizeResponseUsage(
+      response,
+      Date.now() - started,
+      "deepseek",
+    );
+    const metrics = stageMetrics(usage, countWebSearchCalls(response));
+    const sources = extractValidatedSources(response);
+    const cleaned = cleanResearchFinding(response.output_text);
+    if (!/^(ANSWERED|INSUFFICIENT)\s*:/i.test(response.output_text.trim())) {
+      throw new DeepSeekDiscoveryError(
+        "structured_output",
+        "DeepSeek candidate research omitted its required answer status",
+        undefined,
+        response,
+      );
+    }
+    if (!cleaned.declaredInsufficient && sources.length === 0) {
+      throw new Error(
+        "Candidate research returned no validated citations for an asserted answer",
+      );
+    }
+    const status = cleaned.declaredInsufficient ? "insufficient" : "answered";
+    const result = validateResearchResults(stage1, [
+      {
+        candidate_id: candidate.id,
+        question_id: candidate.question_id,
+        question: candidate.investigation_question,
+        status,
+        finding: cleaned.finding,
+        sources: status === "answered" ? sources : [],
+      },
+    ])[0]!;
+    return {
+      result,
+      metrics,
+      call: {
+        candidate_id: candidate.id,
+        question_id: candidate.question_id,
+        status,
+        used_verified_identity_context: built.usedVerifiedIdentityContext,
+        ...metrics,
+      },
+    };
+  } catch (error) {
+    const localFailure = v2CandidateLocalFailure(error, candidate);
+    const failedResponse =
+      response ??
+      (error instanceof DeepSeekDiscoveryError ? error.response : undefined);
+    if (!localFailure || !failedResponse) throw error;
+
+    const usage = normalizeResponseUsage(
+      failedResponse,
+      Date.now() - started,
+      "deepseek",
+    );
+    const metrics = stageMetrics(usage, countWebSearchCalls(failedResponse));
+    const result = validateResearchResults(stage1, [
+      {
+        candidate_id: candidate.id,
+        question_id: candidate.question_id,
+        question: candidate.investigation_question,
+        status: "insufficient",
+        finding: localFailure.safe_message,
+        sources: [],
+      },
+    ])[0]!;
+    return {
+      result,
+      metrics,
+      call: {
+        candidate_id: candidate.id,
+        question_id: candidate.question_id,
+        status: "insufficient",
+        used_verified_identity_context: built.usedVerifiedIdentityContext,
+        candidate_local_failure: localFailure,
+        ...metrics,
+      },
+    };
+  }
+}
+
+async function mapWithBoundedConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  operation: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  let fatalError: unknown;
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (fatalError === undefined) {
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= items.length) return;
+        try {
+          results[index] = await operation(items[index]!);
+        } catch (error) {
+          fatalError = error;
+        }
+      }
+    },
+  );
+  await Promise.all(workers);
+  if (fatalError !== undefined) throw fatalError;
+  return results;
+}
+
+async function runV2HybridSelectiveResearchWithState(
+  deepseek: DeepSeekClient,
+  stage1: DiscoveryStage1,
+  state: DiscoveryExecutionState,
+): Promise<DiscoveryResearchExecution> {
+  const gatedCandidates = stage1.candidates.filter(
+    (candidate) => evaluateResearchGate(stage1, candidate).allowed,
+  );
+  const identityVerification = await runDeepSeekV1IdentityVerification(
+    deepseek,
+    stage1,
+    gatedCandidates,
+    state,
+  );
+
+  state.stageReached = "research";
+  state.currentCandidateId = undefined;
+  state.currentQuestionId = undefined;
+  const researchStarted = Date.now();
+  const completed = await mapWithBoundedConcurrency(
+    gatedCandidates,
+    V2_HYBRID_RESEARCH_MAX_CONCURRENCY,
+    (candidate) => {
+      state.attemptedResearchCalls += 1;
+      return executeV2HybridCandidateResearchCall(
+        deepseek,
+        stage1,
+        candidate,
+        identityVerification.result,
+      );
+    },
+  );
+  const researchWallClockLatencyMs = Date.now() - researchStarted;
+  const rawResults = completed.map((item) => item.result);
+  const calls = completed.map((item) => item.call);
+  const candidateLocalFailures = calls.flatMap((call) =>
+    call.candidate_local_failure ? [call.candidate_local_failure] : [],
+  );
+  for (const item of completed) {
+    state.knownStage2Metrics.push(item.metrics);
+    state.researchCalls.push(item.call);
+  }
+
+  const results = validateResearchResults(stage1, rawResults);
+  state.lastCompletedStage = "research";
+  return {
+    results,
+    calls,
+    identityVerification,
+    gatedCandidates: gatedCandidates.length,
+    identityDependentResearchCandidates: 0,
+    identityBlockedCandidateIds: [],
+    candidateResearchCallsAvoidedByIdentityGate: 0,
+    identityIndependentCandidateResearchApiCalls: 0,
+    candidateResearchApiCalls: calls.length,
+    candidateCallsUsingVerifiedIdentity: calls.filter(
+      (call) => call.used_verified_identity_context,
+    ).length,
+    candidateLocalFailures,
+    researchWallClockLatencyMs,
+    researchMaxConcurrency: V2_HYBRID_RESEARCH_MAX_CONCURRENCY,
+    batchMetrics: null,
+    batchInspection: null,
+  };
+}
+
 export function buildDiscoveryCandidateResearchRequest(
   stage1: DiscoveryStage1,
   candidate: DiscoveryCandidate,
@@ -1961,9 +2225,12 @@ async function runDiscoveryPipelineWithState(
   const modelAllocation = discoveryModelAllocationForVariant(variant);
   const isFrozenV1 = variant === "v1-frozen";
   const isDeepSeekV1 = variant === "v1-deepseek-pro";
-  const usesFrozenV1Semantics = isFrozenV1 || isDeepSeekV1;
+  const isV2Hybrid = variant === "v2-hybrid";
+  const usesFrozenV1Semantics = isFrozenV1 || isDeepSeekV1 || isV2Hybrid;
   const reasoningEffort = usesFrozenV1Semantics
-    ? FROZEN_V1_REASONING_EFFORT
+    ? isV2Hybrid
+      ? V2_HYBRID_REASONING_EFFORT
+      : FROZEN_V1_REASONING_EFFORT
     : DISCOVERY_REASONING_EFFORT;
   state.stageReached = "stage1";
   const stage1Started = Date.now();
@@ -2004,7 +2271,7 @@ async function runDiscoveryPipelineWithState(
   const stage1Usage = normalizeChatUsage(
     stage1Response,
     Date.now() - stage1Started,
-    isDeepSeekV1 ? "openai" : undefined,
+    isDeepSeekV1 || isV2Hybrid ? "openai" : undefined,
   );
   const stage1Metrics = stageMetrics(stage1Usage);
   state.stage1 = stage1Metrics;
@@ -2030,14 +2297,16 @@ async function runDiscoveryPipelineWithState(
     ? await runFrozenV1SelectiveResearchWithState(openai, stage1, state)
     : isDeepSeekV1
       ? await runDeepSeekV1SelectiveResearchWithState(deepseek!, stage1, state)
-      : variant === "v1-batched-research"
-        ? await runBatchedSelectiveResearchWithState(openai, stage1, state)
-        : await runSelectiveResearchWithState(
-            openai,
-            stage1,
-            state,
-            modelAllocation.candidateResearch as DiscoveryCandidateResearchModel,
-          );
+      : isV2Hybrid
+        ? await runV2HybridSelectiveResearchWithState(deepseek!, stage1, state)
+        : variant === "v1-batched-research"
+          ? await runBatchedSelectiveResearchWithState(openai, stage1, state)
+          : await runSelectiveResearchWithState(
+              openai,
+              stage1,
+              state,
+              modelAllocation.candidateResearch as DiscoveryCandidateResearchModel,
+            );
   const stage2Usages = research.batchMetrics
     ? [research.batchMetrics.usage]
     : research.calls.map((call) => call.usage);
@@ -2110,41 +2379,50 @@ async function runDiscoveryPipelineWithState(
         ),
         false,
       )
-    : await openai.chat.completions.create({
-        model: modelAllocation.stage3,
-        reasoning_effort: reasoningEffort,
-        max_completion_tokens: 10000,
-        response_format: {
-          type: "json_schema",
-          json_schema: DISCOVERY_STAGE3_JSON_SCHEMA as unknown as {
-            name: string;
-            strict: boolean;
-            schema: Record<string, unknown>;
+    : isV2Hybrid
+      ? await openai.chat.completions.create(
+          buildV2HybridFinalRequest(
+            imageDataUrl,
+            stage1,
+            research.results,
+            research.identityVerification.result,
+          ),
+        )
+      : await openai.chat.completions.create({
+          model: modelAllocation.stage3,
+          reasoning_effort: reasoningEffort,
+          max_completion_tokens: 10000,
+          response_format: {
+            type: "json_schema",
+            json_schema: DISCOVERY_STAGE3_JSON_SCHEMA as unknown as {
+              name: string;
+              strict: boolean;
+              schema: Record<string, unknown>;
+            },
           },
-        },
-        messages: [
-          {
-            role: "system",
-            content: isFrozenV1 ? FROZEN_V1_STAGE3_PROMPT : STAGE3_PROMPT,
-          },
-          {
-            role: "user",
-            content: [
-              "STAGE 1 GROUNDING:",
-              JSON.stringify(stage3Grounding),
-              "",
-              "DETERMINISTIC CALCULATIONS:",
-              "[]",
-              "",
-              "VALIDATED RESEARCH RESULTS:",
-              JSON.stringify(stage3Evidence.research_results),
-              "",
-              "IDENTITY VERIFICATION RESULT:",
-              JSON.stringify(stage3Evidence.identity_verification),
-            ].join("\n"),
-          },
-        ],
-      });
+          messages: [
+            {
+              role: "system",
+              content: isFrozenV1 ? FROZEN_V1_STAGE3_PROMPT : STAGE3_PROMPT,
+            },
+            {
+              role: "user",
+              content: [
+                "STAGE 1 GROUNDING:",
+                JSON.stringify(stage3Grounding),
+                "",
+                "DETERMINISTIC CALCULATIONS:",
+                "[]",
+                "",
+                "VALIDATED RESEARCH RESULTS:",
+                JSON.stringify(stage3Evidence.research_results),
+                "",
+                "IDENTITY VERIFICATION RESULT:",
+                JSON.stringify(stage3Evidence.identity_verification),
+              ].join("\n"),
+            },
+          ],
+        });
   const stage3Usage = isDeepSeekV1
     ? normalizeResponseUsage(
         stage3Response as Response,
@@ -2260,6 +2538,18 @@ async function runDiscoveryPipelineWithState(
         candidate_research_api_calls: research.candidateResearchApiCalls,
         answered_candidates: answeredCandidates,
         insufficient_candidates: insufficientCandidates,
+        ...(isV2Hybrid
+          ? {
+              candidate_local_failed_candidates:
+                research.candidateLocalFailures?.length ?? 0,
+              candidate_local_failures: research.candidateLocalFailures ?? [],
+              research_wall_clock_latency_ms:
+                research.researchWallClockLatencyMs ?? 0,
+              research_max_concurrency:
+                research.researchMaxConcurrency ??
+                V2_HYBRID_RESEARCH_MAX_CONCURRENCY,
+            }
+          : {}),
         calls: research.calls,
         batch: research.batchMetrics,
       },
@@ -2293,8 +2583,11 @@ export async function runDiscoveryPipeline(
   const pipelineStarted = Date.now();
   const timestamp = new Date().toISOString();
   const variant = options.variant ?? DEFAULT_DISCOVERY_ENGINE_VARIANT;
-  if (variant === "v1-deepseek-pro" && !options.deepseekClient) {
-    throw new Error("DeepSeek client is required for v1-deepseek-pro");
+  if (
+    (variant === "v1-deepseek-pro" || variant === "v2-hybrid") &&
+    !options.deepseekClient
+  ) {
+    throw new Error(`DeepSeek client is required for ${variant}`);
   }
   const engineVersion = discoveryEngineVersionForVariant(variant);
   const modelAllocation = discoveryModelAllocationForVariant(variant);
@@ -2302,7 +2595,9 @@ export async function runDiscoveryPipeline(
     pipelineStarted,
     engineVersion,
     modelAllocation.candidateResearch,
-    variant !== "v1-frozen" && variant !== "v1-deepseek-pro",
+    variant !== "v1-frozen" &&
+      variant !== "v1-deepseek-pro" &&
+      variant !== "v2-hybrid",
   );
 
   try {

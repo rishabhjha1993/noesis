@@ -6,7 +6,7 @@
 
 ## Current Product State
 
-The legacy Noesis experience works as a standalone full-stack Node service. The React upload/result UI, Express API, asynchronous analysis jobs and polling, deterministic evidence computation, OpenAI analysis pipeline, cache support, and evaluation infrastructure are preserved. Platform-independent production serving, minimum public-safety controls, instrumentation, and evaluation infrastructure are checkpointed in Git and deployed. Discovery Engine V1 exists as the parallel, experimental branch path at `/discovery-lab`; it is committed, pushed, and qualitatively evaluated on Noordoostpolder, Minard, Pantheon, and Chuquicamata, but has not been deployed. Experiment A is closed/failed and C1 Luna candidate research has passed. F1 ended as an inconclusive ceiling case. `/discovery-lab` now exposes an immutable `V1 frozen baseline` sourced from historical checkpoint `3a0bca12`, separate from the current identity-resolution path and C1. The frozen ruler preserves historical Sol → Terra verification → Terra per-candidate research → Sol semantics, while newer experimental variants remain intact and independently selectable.
+The legacy Noesis experience works as a standalone full-stack Node service. The React upload/result UI, Express API, asynchronous analysis jobs and polling, deterministic evidence computation, OpenAI analysis pipeline, cache support, and evaluation infrastructure are preserved. Platform-independent production serving, minimum public-safety controls, instrumentation, and evaluation infrastructure are checkpointed in Git and deployed. Discovery Engine V1 exists as the parallel `/discovery-lab` path and has been qualitatively evaluated on Noordoostpolder, Minard, Pantheon, and Chuquicamata, but has not been deployed. `/discovery-lab` retains the immutable `V1 frozen baseline` sourced from historical checkpoint `3a0bca12` plus the prior experimental variants. `V2 Hybrid — production candidate` is now implemented separately as the intended shippable architecture; it requires a small human acceptance check before architecture freeze or deployment.
 
 ## Live Deployment
 
@@ -21,7 +21,7 @@ The legacy Noesis experience works as a standalone full-stack Node service. The 
 
 ## Current Milestone
 
-The immutable historical V1 quality ruler remains restored as `V1 frozen baseline`. `V1 DeepSeek Pro (experimental)` is an isolated cost/quality challenger with the call graph frozen Sol Stage 1 → DeepSeek V4 Pro conditional identity verification → one DeepSeek V4 Pro hosted-search operation per frozen-gated candidate → DeepSeek V4 Pro text-only Stage 3 → existing deterministic validation. Its first real Noordoostpolder attempt reached DeepSeek but failed the unchanged unresolved-identity semantic invariant; a provider-specific, one-attempt semantic repair is now implemented and verified without a paid rerun. The candidate-research image-access harness also remains available and unexecuted; frozen-source replay applicability continues to follow the verified hypothesis's `relevant_question_ids`.
+`V2 Hybrid — production candidate` is implemented as `discovery-engine-v2-hybrid` with isolated cache revision `v2-hybrid-v1`. Its exact call graph is frozen-V1 Sol-medium vision Stage 1 → optional DeepSeek V4 Pro identity verification with the existing semantic repair → bounded-concurrency DeepSeek V4 Pro candidate-local research → Sol-medium multimodal final synthesis with the original high-detail image → existing deterministic validation. Safely local research failures become source-free `INSUFFICIENT` candidate results and do not abort valid siblings; fundamental provider or contract failures still fail closed. No quality conclusion has been drawn because implementation verification used mocks only and made no paid call.
 
 ## Completed
 
@@ -215,10 +215,15 @@ Latest verified on 2026-08-15:
 - Failed-job diagnostics/Stage 3 contract typecheck: passed across all workspace projects.
 - Failed-job diagnostics/Stage 3 contract tests: 92/92 total repository tests passed, including 32 focused batched cases and actual mocked pipeline → failed job → API error JSON serialization. Coverage includes mixed candidate reasons/state, secret and raw-response exclusion, answered-only Stage 3 evidence, explicit identity applicability, strict final source rejection, valid researched output, insufficient-research plus seen-only output, mixed valid/invalid output, baseline V1 behavior, cache identity, and legacy routing.
 - Failed-job diagnostics/Stage 3 contract full build: passed for the API server, Noesis frontend, and mockup sandbox; the existing non-fatal Vite tooltip sourcemap warning remains. No paid model call was made.
+- V2 Hybrid is implemented as the separate `v2-hybrid` selector and `discovery-engine-v2-hybrid` engine. It literally reuses frozen-V1 Sol Stage 1, frozen identity applicability and final validation semantics, the existing DeepSeek V4 Pro hosted-search/identity adapter and semantic repair, and the existing Discovery output contract.
+- V2 candidate research remains one operation per approved candidate and runs after optional identity verification with a maximum concurrency of three. No-search, incomplete-search, uncited-answer, and safely classifiable malformed candidate responses become sanitized source-free `INSUFFICIENT` results; valid sibling evidence remains candidate-owned and continues to final synthesis. Authentication and other fundamental failures remain fatal.
+- V2 final synthesis is Sol medium with no web and receives the original image again at high detail plus validated Stage-1 grounding, safe research results, candidate statuses, and verified identity when applicable. It is instructed to select only discoveries that materially change how the user reads the visible image; the unchanged deterministic validator remains the final trust boundary.
+- V2 metrics expose per-stage and per-candidate usage, latency, hosted-search counts, model-token cost, known tool cost when available, known cost subtotal, research-pool wall time, concurrency, answered/insufficient/local-failure counts, and sanitized local diagnostics. Unknown DeepSeek hosted-search price remains `null` and is not fabricated.
+- V2 verification used mocked clients only: 6/6 focused V2 tests, 167/167 full repository tests, workspace typecheck, frozen-V1 fingerprint checks, formatting, and full production build passed. Frozen V1, V1 DeepSeek Pro, mutable V1/C1, replay harnesses, and legacy `/` remain unchanged. No paid model, API, or search call occurred.
 
 ## Latest Stable Commit
 
-`8402bfd` — controlled candidate-research replay using retained validated inputs. Shared Stage-3 evidence alignment is `a7d5765`; identity generation alignment is `e24c4f0`; Discovery accounting is `24a80ac`; C1 implementation is `f1d49a8`; Experiment A closure is `5a96aaf`.
+V2 Hybrid production-candidate implementation — this checkpoint. Its immediate predecessor is `c81ab3f`, the DeepSeek identity semantic-repair checkpoint.
 
 ## Important Decisions
 
@@ -261,6 +266,7 @@ Latest verified on 2026-08-15:
 - The model sequence remains Sol → Terra → Luna → Sol at medium reasoning. This checkpoint changes only the Stage-1-to-Terra handoff semantics and the deterministic Luna research gate; it adds no model call, retry, fallback, image input to Terra, C2 experiment, or new agent.
 - Frozen V1 intelligence semantics must not be modified by future optimization work. Experimental architectures require separate variants/cache identities and must prove themselves against the frozen reference. Safe operational instrumentation may be shared only when it cannot alter calls, prompts, model inputs, validation decisions, or Stage-3 evidence.
 - Current cost metrics separate model-token cost, web-search calls, tool cost, and total known cost. After moving candidate research to Luna, web-search fees dominated controlled Noordoostpolder research COGS (`$0.07` of `$0.08614012`); this is an observation, not authorization to optimize search usage yet.
+- V2 Hybrid is the production-candidate architecture, not another open-ended experiment. No further architecture experimentation should occur before its acceptance check unless a blocker prevents execution.
 
 ## Known Issues / Risks
 
@@ -287,4 +293,4 @@ Latest verified on 2026-08-15:
 
 ## Next Step
 
-Human: review the repaired `V1 DeepSeek Pro (experimental)` challenger and explicitly authorize any paid comparison rerun. The existing frozen-V1 Asia candidate-research image-access experiment also remains unexecuted pending its retained JSON/image and explicit authorization. Do not infer quality, latency, or cost superiority from mocked compatibility tests.
+Run one small human acceptance check of `V2 Hybrid — production candidate`, then freeze the architecture if its image-grounded quality and reliability are acceptable. Do not infer quality superiority from mocked verification, and do not begin further architecture experimentation before this acceptance check unless a blocker prevents execution.

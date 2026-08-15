@@ -11,6 +11,10 @@ import {
   DEEPSEEK_V1_CACHE_REVISION,
   DEEPSEEK_V1_ENGINE_VERSION,
 } from "./discoveryDeepSeekV1";
+import {
+  V2_HYBRID_CACHE_REVISION,
+  V2_HYBRID_ENGINE_VERSION,
+} from "./discoveryHybridV2";
 
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 20;
@@ -42,7 +46,9 @@ export function computeDiscoveryCacheKey(
       ? FROZEN_V1_CACHE_REVISION
       : engineVersion === DEEPSEEK_V1_ENGINE_VERSION
         ? DEEPSEEK_V1_CACHE_REVISION
-        : DISCOVERY_CACHE_CONTRACT_REVISION;
+        : engineVersion === V2_HYBRID_ENGINE_VERSION
+          ? V2_HYBRID_CACHE_REVISION
+          : DISCOVERY_CACHE_CONTRACT_REVISION;
   return {
     cacheKey: `${engineVersion}:${contractRevision}:${imageHash}`,
     imageHash,

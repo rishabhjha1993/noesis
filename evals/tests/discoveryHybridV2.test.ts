@@ -486,6 +486,47 @@ test("research instructions make identity resolution an explicit first responsib
   assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /never use it in your answer/i);
 });
 
+test("research instructions set a concrete ESTABLISHED bar that rejects category/generic sources and requires ruling out the closest alternative", () => {
+  // The two-route ESTABLISHED bar: same-object OR discriminative triangulation.
+  assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /same depicted object/i);
+  assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /DIRECT SAME-OBJECT EVIDENCE/);
+  assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /DISCRIMINATIVE TRIANGULATION/);
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /distinguish the proposed identity from its closest plausible alternatives/i,
+  );
+
+  // Category/gallery/list/search pages are named as insufficient for same-object identity.
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /categor|gallery|list|index|search-result/i,
+  );
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /does not identify THIS depicted object/i,
+  );
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /plausibility, not identification/i,
+  );
+
+  // The close-alternative check is required before ESTABLISHED.
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /name the nearest plausible alternative/i,
+  );
+
+  // Generic facts stay conditional and non-promoting; contradiction path preserved.
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /may never promote the identity to fact/i,
+  );
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /Use CONTRADICTED when reliable evidence identifies the depicted object/i,
+  );
+});
+
 test("identity-dependent candidates receive the establish-or-reject-first instruction; identity-independent candidates do not", () => {
   const c1 = buildV2HybridResearchRequest(stage1, stage1.candidates[0]!);
   assert.match(

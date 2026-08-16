@@ -600,10 +600,15 @@ test("research instructions calibrate causal claims: generic mechanism is possib
     V2_HYBRID_RESEARCH_INSTRUCTIONS,
     /Instance attribution requires an instance-specific discriminator/i,
   );
-  // ...and the visible image may itself be that discriminator.
+  // ...and Stage-1-recorded visual evidence may itself be that discriminator.
   assert.match(
     V2_HYBRID_RESEARCH_INSTRUCTIONS,
-    /discriminating feature in the visible image itself counts/i,
+    /discriminating visual feature explicitly recorded by Stage 1 counts/i,
+  );
+  // Luna does not see the original image and must not rely on unrecorded visual evidence.
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /You do NOT see the original image, so do not infer or rely on visual evidence that Stage 1 did not record/i,
   );
   // Calibrated language when only generic plausibility is found.
   assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /consistent with/i);

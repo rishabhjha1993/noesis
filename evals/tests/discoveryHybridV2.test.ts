@@ -56,7 +56,10 @@ type CandidateMode =
   | "incomplete_search"
   | "uncited"
   | "malformed"
-  | "api_error";
+  | "api_error"
+  | "identity_established"
+  | "identity_unresolved"
+  | "identity_contradicted";
 
 const stage1: DiscoveryStage1 = {
   image_summary: "An engineered landscape with three visible anomalies.",
@@ -313,6 +316,24 @@ function openAIClient(options: {
             sourceUrl: "https://example.com/unscoped",
           });
         }
+        if (mode === "identity_established") {
+          return researchResponse(
+            "ANSWERED: IDENTITY ESTABLISHED as A specific engineered landscape, confirmed because the visible marker matches an authoritative survey record for this exact site. Using that identity, the circular feature is the site's water-control basin.",
+            { search: true, sourceUrl: "https://example.com/established" },
+          );
+        }
+        if (mode === "identity_unresolved") {
+          return researchResponse(
+            "INSUFFICIENT: The exact identity remains UNRESOLVED; trustworthy sources did not connect the visible marker to the proposed landscape, and exact identity is necessary to answer safely.",
+            { search: true },
+          );
+        }
+        if (mode === "identity_contradicted") {
+          return researchResponse(
+            "ANSWERED: The proposed identity is CONTRADICTED by the visible marker's registry number, which matches a different, unrelated site. Without relying on that identity, the circular feature's general drainage function can still be safely described from generic engineering sources.",
+            { search: true, sourceUrl: "https://example.com/contradicted" },
+          );
+        }
         const sourceUrl = `https://example.com/${candidateId}`;
         return researchResponse(
           `ANSWERED: Trustworthy evidence establishes A specific engineered landscape while answering ${candidateId}.`,
@@ -383,6 +404,51 @@ test("V2 Luna request passes only relevant identity hypotheses as unverified lea
     String(c2.request.input),
     /A specific engineered landscape/,
   );
+});
+
+test("research instructions make identity resolution an explicit first responsibility with a three-way conclusion and a lookalike-safety bar", () => {
+  assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /first responsibility/i);
+  assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /ESTABLISHED/);
+  assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /UNRESOLVED/);
+  assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /CONTRADICTED/);
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /distinguishes it from plausible lookalikes/i,
+  );
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /never enough to establish/i,
+  );
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /do not promote the hypothesis to fact/i,
+  );
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /never use it in your answer/i,
+  );
+});
+
+test("identity-dependent candidates receive the establish-or-reject-first instruction; identity-independent candidates do not", () => {
+  const c1 = buildV2HybridResearchRequest(stage1, stage1.candidates[0]!);
+  assert.match(
+    String(c1.request.input),
+    /first establish or reject the exact identity/i,
+  );
+  assert.match(
+    String(c1.request.input),
+    /ESTABLISHED \/ UNRESOLVED \/ CONTRADICTED/,
+  );
+
+  // c3 has identity_context_needed: false and no relevant hypothesis.
+  const c3 = buildV2HybridResearchRequest(stage1, stage1.candidates[2]!);
+  assert.deepEqual(c3.relevantIdentityHypothesisIds, []);
+  assert.match(String(c3.request.input), /not needed for this question/i);
+  assert.doesNotMatch(
+    String(c3.request.input),
+    /first establish or reject the exact identity/i,
+  );
+  assert.doesNotMatch(String(c3.request.input), /UNVERIFIED VISUAL IDENTITY/);
 });
 
 test("mocked end-to-end V2 is Sol image to Luna search to Sol image with no identity or DeepSeek call", async () => {
@@ -580,6 +646,109 @@ test("candidate-local Luna failures continue siblings with concurrency-three and
     assert.equal(result.metrics.stage2.research_max_concurrency, 3);
     assert.doesNotMatch(JSON.stringify(result), /unsafe\.example|private/);
   }
+});
+
+test("A: an ESTABLISHED identity conclusion carries evidence-backed sources into an answered candidate result usable downstream", async () => {
+  const result = await runDiscoveryPipeline(
+    openAIClient({
+      candidateModes: { c1: "identity_established" },
+      finalOutput: finalDiscovery("https://example.com/established"),
+    }),
+    imageDataUrl,
+    { variant: "v2-hybrid" },
+  );
+  const c1Result = result.inspection.research_results.find(
+    (item) => item.candidate_id === "c1",
+  );
+  assert.equal(c1Result?.status, "answered");
+  assert.match(c1Result?.finding ?? "", /IDENTITY ESTABLISHED/);
+  assert.ok((c1Result?.sources.length ?? 0) > 0);
+  assert.equal(
+    c1Result?.sources[0]?.url,
+    "https://example.com/established",
+  );
+});
+
+test("B: an UNRESOLVED identity conclusion is not promoted to fact and safely degrades to INSUFFICIENT", async () => {
+  const genericDiscoveryFromIdentityIndependentCandidate = {
+    discoveries: [
+      {
+        ...finalDiscovery("https://example.com/c3").discoveries[0],
+        id: "d3",
+        candidate_ids: ["c3"],
+        sources: [{ title: "Source c3", url: "https://example.com/c3" }],
+      },
+    ],
+  };
+  const result = await runDiscoveryPipeline(
+    openAIClient({
+      candidateModes: { c1: "identity_unresolved" },
+      finalOutput: genericDiscoveryFromIdentityIndependentCandidate,
+    }),
+    imageDataUrl,
+    { variant: "v2-hybrid" },
+  );
+  const c1Result = result.inspection.research_results.find(
+    (item) => item.candidate_id === "c1",
+  );
+  assert.equal(c1Result?.status, "insufficient");
+  assert.deepEqual(c1Result?.sources, []);
+  assert.doesNotMatch(
+    JSON.stringify(result.discoveries),
+    /A specific engineered landscape is confirmed/i,
+  );
+});
+
+test("C: a CONTRADICTED identity is rejected but the candidate may still answer safely at a generic, sourced level", async () => {
+  const result = await runDiscoveryPipeline(
+    openAIClient({
+      candidateModes: { c1: "identity_contradicted" },
+      finalOutput: finalDiscovery("https://example.com/contradicted"),
+    }),
+    imageDataUrl,
+    { variant: "v2-hybrid" },
+  );
+  const c1Result = result.inspection.research_results.find(
+    (item) => item.candidate_id === "c1",
+  );
+  assert.equal(c1Result?.status, "answered");
+  assert.match(c1Result?.finding ?? "", /CONTRADICTED/);
+  assert.doesNotMatch(c1Result?.finding ?? "", /IDENTITY ESTABLISHED/);
+  assert.ok((c1Result?.sources.length ?? 0) > 0);
+});
+
+test("D: an identity-independent candidate's research is unaffected by the identity-resolution instructions", () => {
+  const c3 = buildV2HybridResearchRequest(stage1, stage1.candidates[2]!);
+  assert.equal(c3.relevantIdentityHypothesisIds.length, 0);
+  assert.doesNotMatch(String(c3.request.input), /ESTABLISHED/);
+  assert.doesNotMatch(String(c3.request.input), /UNRESOLVED/);
+  assert.doesNotMatch(String(c3.request.input), /CONTRADICTED/);
+});
+
+test("E: a generic source about the proposed subject cannot substitute for candidate-local proof, and source ownership stays candidate-local", async () => {
+  const concurrency = { active: 0, max: 0 };
+  const result = await runDiscoveryPipeline(
+    openAIClient({ candidateModes: { c2: "uncited" }, concurrency }),
+    imageDataUrl,
+    { variant: "v2-hybrid" },
+  );
+  assert.equal(
+    result.metrics.stage2.candidate_local_failures?.[0]?.category,
+    "source_validation",
+  );
+  const c2Result = result.inspection.research_results.find(
+    (item) => item.candidate_id === "c2",
+  );
+  assert.equal(c2Result?.status, "insufficient");
+  assert.deepEqual(c2Result?.sources, []);
+  const c1Result = result.inspection.research_results.find(
+    (item) => item.candidate_id === "c1",
+  );
+  assert.equal(c1Result?.sources[0]?.url, "https://example.com/c1");
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /never enough to establish/i,
+  );
 });
 
 test("global OpenAI configuration failure remains fatal", async () => {

@@ -25,7 +25,7 @@ export const V2_HYBRID_RESEARCH_MAX_CONCURRENCY = 3;
 
 export const V2_HYBRID_RESEARCH_INSTRUCTIONS = `${FROZEN_V1_RESEARCH_INSTRUCTIONS}
 
-Stage-1 identity hypotheses, when supplied, are UNVERIFIED VISUAL SEARCH LEADS, not established facts. You may use a relevant lead to formulate searches, but you must never assume it is correct. If trustworthy external evidence establishes the identity sufficiently to answer this exact candidate, the finding may state that identity and must remain supported by this candidate's validated citations. If exact identity cannot be established but the question can be answered safely at a more general level, answer only at that supported level. If exact identity is necessary and cannot be established, return INSUFFICIENT. Never silently substitute a visually similar subject, and do not turn this candidate operation into a general identity report.`;
+Stage-1 identity hypotheses, when supplied, are UNVERIFIED VISUAL SEARCH LEADS, not established facts. You may use a relevant lead to formulate searches, but you must never assume it is correct. When a relevant hypothesis is supplied for this candidate, your first responsibility is to establish or reject that exact identity before answering the approved question: search for evidence that connects this candidate's own visible clues (labels, numbers, geographic or object morphology) to the proposed identity, and for evidence that distinguishes it from plausible lookalikes. Reach one of three conclusions and let it govern your finding: ESTABLISHED — state plainly that the identity is established, cite the evidence that establishes it, then use that exact identity to answer the approved question; UNRESOLVED — do not promote the hypothesis to fact, answer only at the level genuinely supported by evidence, or return INSUFFICIENT if exact identity is necessary to answer safely; CONTRADICTED — explicitly reject the proposed identity, never use it in your answer, and continue only if the question can still be meaningfully answered without it, otherwise return INSUFFICIENT. "Looks similar to X" or a source that merely discusses X in general is never enough to establish X; you need evidence tying this candidate's specific visible clues to that exact identity, preferring authoritative or first-party sources when practical. If trustworthy external evidence establishes the identity sufficiently to answer this exact candidate, the finding may state that identity and must remain supported by this candidate's validated citations. If exact identity cannot be established but the question can be answered safely at a more general level, answer only at that supported level. If exact identity is necessary and cannot be established, return INSUFFICIENT. Never silently substitute a visually similar subject, and do not turn this candidate operation into a general identity report.`;
 
 export function buildV2HybridResearchRequest(
   stage1: DiscoveryStage1,
@@ -72,7 +72,7 @@ export function buildV2HybridResearchRequest(
               }),
             })),
           ),
-          "These hypotheses are not verified facts. Establish any necessary identity with this candidate's own trustworthy search evidence.",
+          "These hypotheses are not verified facts. Before answering the APPROVED QUESTION, first establish or reject the exact identity above using this candidate's own trustworthy search evidence, then use that ESTABLISHED / UNRESOLVED / CONTRADICTED conclusion to decide how to answer.",
         ]
       : candidate.identity_context_needed
         ? [

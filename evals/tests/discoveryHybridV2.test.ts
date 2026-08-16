@@ -543,29 +543,43 @@ test("research instructions demote Luna to a text-only evidence/discriminator ga
   );
 });
 
-test("final prompt makes Sol the authoritative identity adjudicator: image corroboration required, CONTRADICTED blocks, UNRESOLVED does not veto", () => {
+test("final prompt makes Sol the authoritative identity adjudicator that reconciles CONTRADICTED evidence rather than mechanically vetoing on it", () => {
+  // (5) Final Sol remains the authoritative adjudicator over provisional research.
   assert.match(V2_HYBRID_FINAL_PROMPT, /AUTHORITATIVE identity adjudicator/);
   assert.match(
     V2_HYBRID_FINAL_PROMPT,
     /candidate research did NOT see the image/i,
   );
-  // Positive image corroboration of a discriminating attribute is required.
+  // Positive image corroboration required; a research assertion alone is insufficient.
   assert.match(
     V2_HYBRID_FINAL_PROMPT,
     /POSITIVELY corroborate, in the visible image, a discriminating attribute/i,
   );
   assert.match(
     V2_HYBRID_FINAL_PROMPT,
-    /a research finding that merely asserts the identity is not enough/i,
+    /a research finding that merely asserts the identity is never enough/i,
   );
-  // CONTRADICTED blocks; UNRESOLVED is only absence of proof and must not veto.
-  assert.match(
-    V2_HYBRID_FINAL_PROMPT,
-    /NO candidate returned CONTRADICTED evidence/i,
-  );
+  // (1) UNRESOLVED is only absence of proof and does not veto.
   assert.match(
     V2_HYBRID_FINAL_PROMPT,
     /An UNRESOLVED candidate is only absence of proof and must NOT veto/i,
+  );
+  // (2) CONTRADICTED is substantive negative evidence that must be reconciled.
+  assert.match(
+    V2_HYBRID_FINAL_PROMPT,
+    /A CONTRADICTED candidate is substantive negative evidence that you must take seriously and explicitly reconcile/i,
+  );
+  // (4) Not a mechanical veto — a resolvable contradiction may still establish identity.
+  assert.match(V2_HYBRID_FINAL_PROMPT, /not an automatic mechanical veto/i);
+  assert.match(
+    V2_HYBRID_FINAL_PROMPT,
+    /clearly resolves the contradiction, you may still establish the identity/i,
+  );
+  assert.match(V2_HYBRID_FINAL_PROMPT, /Do not vote-count/i);
+  // (3) An unresolved contradiction keeps identity unresolved.
+  assert.match(
+    V2_HYBRID_FINAL_PROMPT,
+    /the contradiction cannot be resolved that way, the identity remains UNRESOLVED/i,
   );
   // Established identity still requires an owning answered candidate's validated sources.
   assert.match(

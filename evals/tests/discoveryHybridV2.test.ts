@@ -486,44 +486,91 @@ test("research instructions make identity resolution an explicit first responsib
   assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /never use it in your answer/i);
 });
 
-test("research instructions set a concrete ESTABLISHED bar that rejects category/generic sources and requires ruling out the closest alternative", () => {
-  // The two-route ESTABLISHED bar: same-object OR discriminative triangulation.
-  assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /same depicted object/i);
-  assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /DIRECT SAME-OBJECT EVIDENCE/);
-  assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /DISCRIMINATIVE TRIANGULATION/);
+test("research instructions demote Luna to a text-only evidence/discriminator gatherer whose identity call is provisional", () => {
+  // Luna is told it has no image and cannot confirm same-object identity itself.
   assert.match(
     V2_HYBRID_RESEARCH_INSTRUCTIONS,
-    /distinguish the proposed identity from its closest plausible alternatives/i,
+    /you do NOT receive the image/i,
+  );
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /CANNOT confirm that any external source depicts THIS exact object/i,
+  );
+  assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /PROVISIONAL/);
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /authoritative identity determination is made by the final image-holding stage/i,
   );
 
-  // Category/gallery/list/search pages are named as insufficient for same-object identity.
+  // Same-object support requires an explicit in-context bridge; a subject page is not one.
+  assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /EXPLICIT BRIDGE/);
   assert.match(
     V2_HYBRID_RESEARCH_INSTRUCTIONS,
-    /categor|gallery|list|index|search-result/i,
+    /matching recorded part number, label, serial, or inscription/i,
   );
   assert.match(
     V2_HYBRID_RESEARCH_INSTRUCTIONS,
-    /does not identify THIS depicted object/i,
+    /dedicated single-subject die-shot, gallery, archive, category, list, index, or search-result page — is NOT a bridge/i,
   );
   assert.match(
     V2_HYBRID_RESEARCH_INSTRUCTIONS,
-    /plausibility, not identification/i,
-  );
-
-  // The close-alternative check is required before ESTABLISHED.
-  assert.match(
-    V2_HYBRID_RESEARCH_INSTRUCTIONS,
-    /name the nearest plausible alternative/i,
+    /Resemblance or family membership is plausibility, not identification/i,
   );
 
-  // Generic facts stay conditional and non-promoting; contradiction path preserved.
+  // Luna must surface image-checkable discriminating attributes vs the closest alternative.
+  assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /DISCRIMINATING ATTRIBUTES/);
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /closest plausible alternative/i,
+  );
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /the payload the final image-holding stage uses to adjudicate/i,
+  );
+
+  // Provisional three-way conclusion; absence of proof is UNRESOLVED, not CONTRADICTED.
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /PROVISIONAL ESTABLISHED only/i,
+  );
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /absence of proof is UNRESOLVED, not CONTRADICTED/i,
+  );
   assert.match(
     V2_HYBRID_RESEARCH_INSTRUCTIONS,
     /may never promote the identity to fact/i,
   );
+});
+
+test("final prompt makes Sol the authoritative identity adjudicator: image corroboration required, CONTRADICTED blocks, UNRESOLVED does not veto", () => {
+  assert.match(V2_HYBRID_FINAL_PROMPT, /AUTHORITATIVE identity adjudicator/);
   assert.match(
-    V2_HYBRID_RESEARCH_INSTRUCTIONS,
-    /Use CONTRADICTED when reliable evidence identifies the depicted object/i,
+    V2_HYBRID_FINAL_PROMPT,
+    /candidate research did NOT see the image/i,
+  );
+  // Positive image corroboration of a discriminating attribute is required.
+  assert.match(
+    V2_HYBRID_FINAL_PROMPT,
+    /POSITIVELY corroborate, in the visible image, a discriminating attribute/i,
+  );
+  assert.match(
+    V2_HYBRID_FINAL_PROMPT,
+    /a research finding that merely asserts the identity is not enough/i,
+  );
+  // CONTRADICTED blocks; UNRESOLVED is only absence of proof and must not veto.
+  assert.match(
+    V2_HYBRID_FINAL_PROMPT,
+    /NO candidate returned CONTRADICTED evidence/i,
+  );
+  assert.match(
+    V2_HYBRID_FINAL_PROMPT,
+    /An UNRESOLVED candidate is only absence of proof and must NOT veto/i,
+  );
+  // Established identity still requires an owning answered candidate's validated sources.
+  assert.match(
+    V2_HYBRID_FINAL_PROMPT,
+    /an applicable answered candidate finding supports it with that candidate's validated sources/i,
   );
 });
 
@@ -698,6 +745,33 @@ test("unsupported Stage-1 identity cannot become a researched final fact", async
       assert.equal(error.diagnostic.category, "source_validation");
       return true;
     },
+  );
+});
+
+test("an UNRESOLVED sibling does not block a properly answered, sourced identity discovery (unproven != disproven)", async () => {
+  // c2 is UNRESOLVED (insufficient) while c1 is answered with a validated source and the
+  // final output promotes an identity discovery grounded in c1. Absence of proof from a
+  // sibling must NOT veto an identity the image-holder can corroborate and source. This is
+  // the deterministic guard against over-conservatism; CONTRADICTED-blocking and image
+  // corroboration are prompt-level rules asserted in the final-prompt contract test above.
+  const result = await runDiscoveryPipeline(
+    openAIClient({
+      candidateModes: { c2: "insufficient" },
+      finalOutput: finalDiscovery("https://example.com/c1"),
+    }),
+    imageDataUrl,
+    { variant: "v2-hybrid" },
+  );
+  assert.equal(result.discoveries.length, 1);
+  assert.deepEqual(result.inspection.discovery_candidates.d1, ["c1"]);
+  assert.equal(
+    result.discoveries[0]?.sources[0]?.url,
+    "https://example.com/c1",
+  );
+  assert.equal(
+    result.inspection.research_results.find((r) => r.candidate_id === "c2")
+      ?.status,
+    "insufficient",
   );
 });
 

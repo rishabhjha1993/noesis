@@ -588,6 +588,83 @@ test("final prompt makes Sol the authoritative identity adjudicator that reconci
   );
 });
 
+test("research instructions calibrate causal claims: generic mechanism is possibility, instance attribution needs a discriminator", () => {
+  // Generic mechanism establishes possibility, not instance causation.
+  assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /GENERIC MECHANISM EVIDENCE/);
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /does NOT establish that the mechanism explains THIS particular visual instance/i,
+  );
+  // Instance attribution requires a discriminator...
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /Instance attribution requires an instance-specific discriminator/i,
+  );
+  // ...and the visible image may itself be that discriminator.
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /discriminating feature in the visible image itself counts/i,
+  );
+  // Calibrated language when only generic plausibility is found.
+  assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /consistent with/i);
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /do NOT upgrade it into "this is caused by X"/i,
+  );
+  // Explicitly not a search/stop instruction.
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /not a search-budget or stopping instruction/i,
+  );
+  // Existing identity discipline remains intact.
+  assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /EXPLICIT BRIDGE/);
+  assert.match(
+    V2_HYBRID_RESEARCH_INSTRUCTIONS,
+    /PROVISIONAL ESTABLISHED only/i,
+  );
+});
+
+test("final prompt calibrates causal claims: claim strength <= instance evidence, and unresolved-hypothesis evidence cannot silently support a hypothesis-independent claim", () => {
+  // Claim strength may not exceed instance-specific evidence; "can produce" != "caused here".
+  assert.match(
+    V2_HYBRID_FINAL_PROMPT,
+    /a claim's strength may never exceed the instance-specific evidence/i,
+  );
+  assert.match(
+    V2_HYBRID_FINAL_PROMPT,
+    /does NOT by itself license "the Y in this image is caused by X/i,
+  );
+  // Probable/factual requires evidence separating the serious alternatives.
+  assert.match(
+    V2_HYBRID_FINAL_PROMPT,
+    /promote a mechanism from POSSIBLE \/ CONSISTENT-WITH to PROBABLE or FACTUAL only when/i,
+  );
+  assert.match(
+    V2_HYBRID_FINAL_PROMPT,
+    /separates that mechanism from the serious alternatives/i,
+  );
+  // Calibrated useful mechanisms remain allowed; no manufactured winner from generic sourcing.
+  assert.match(
+    V2_HYBRID_FINAL_PROMPT,
+    /keep the mechanism as a calibrated, plausible interpretation/i,
+  );
+  assert.match(
+    V2_HYBRID_FINAL_PROMPT,
+    /do NOT manufacture a winner merely because more generic sources/i,
+  );
+  // Hypothesis-leakage rule (Dixon class).
+  assert.match(
+    V2_HYBRID_FINAL_PROMPT,
+    /conditional on an UNRESOLVED identity or any other unresolved hypothesis must NOT become the evidentiary support/i,
+  );
+  assert.match(
+    V2_HYBRID_FINAL_PROMPT,
+    /remains applicable independently of the unresolved hypothesis/i,
+  );
+  // Existing identity adjudication remains intact.
+  assert.match(V2_HYBRID_FINAL_PROMPT, /AUTHORITATIVE identity adjudicator/);
+});
+
 test("identity-dependent candidates receive the establish-or-reject-first instruction; identity-independent candidates do not", () => {
   const c1 = buildV2HybridResearchRequest(stage1, stage1.candidates[0]!);
   assert.match(

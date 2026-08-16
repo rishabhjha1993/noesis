@@ -78,6 +78,7 @@ import {
   V2_HYBRID_RESEARCH_MAX_CONCURRENCY,
   V2_HYBRID_RESEARCH_MODEL,
   V2_HYBRID_STAGE1_MODEL,
+  V2_HYBRID_STAGE1_PROMPT,
   V2_HYBRID_STAGE3_MODEL,
   buildV2HybridFinalRequest,
   buildV2HybridResearchRequest,
@@ -2300,9 +2301,11 @@ async function runDiscoveryPipelineWithState(
     messages: [
       {
         role: "system",
-        content: usesFrozenV1Semantics
-          ? FROZEN_V1_STAGE1_PROMPT
-          : STAGE1_PROMPT,
+        content: isV2Hybrid
+          ? V2_HYBRID_STAGE1_PROMPT
+          : usesFrozenV1Semantics
+            ? FROZEN_V1_STAGE1_PROMPT
+            : STAGE1_PROMPT,
       },
       {
         role: "user",

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { DiscoveryStage1 } from "../../artifacts/api-server/src/lib/discoveryContracts";
+import {
+  DiscoveryStage1Schema,
+  type DiscoveryStage1,
+} from "../../artifacts/api-server/src/lib/discoveryContracts";
 import {
   V2_HYBRID_CACHE_REVISION,
   V2_HYBRID_ENGINE_VERSION,
@@ -9,6 +12,7 @@ import {
   V2_HYBRID_RESEARCH_INSTRUCTIONS,
   V2_HYBRID_RESEARCH_MAX_CONCURRENCY,
   V2_HYBRID_RESEARCH_MODEL,
+  V2_HYBRID_STAGE1_PROMPT,
   buildV2HybridFinalRequest,
   buildV2HybridResearchRequest,
 } from "../../artifacts/api-server/src/lib/discoveryHybridV2";
@@ -365,16 +369,56 @@ test("V2 allocation, selector, and cache revision define the launch call graph",
       ?.label,
     "V2 Hybrid — production candidate",
   );
-  assert.equal(V2_HYBRID_CACHE_REVISION, "v2-hybrid-v3");
+  assert.equal(V2_HYBRID_CACHE_REVISION, "v2-hybrid-v4");
   const v2Key = computeDiscoveryCacheKey(
     imageDataUrl,
     V2_HYBRID_ENGINE_VERSION,
   ).cacheKey;
-  assert.match(v2Key, /v2-hybrid-v3/);
+  assert.match(v2Key, /v2-hybrid-v4/);
+  assert.doesNotMatch(v2Key, /v2-hybrid-v3/);
   assert.notEqual(
     v2Key,
     computeDiscoveryCacheKey(imageDataUrl, FROZEN_V1_ENGINE_VERSION).cacheKey,
   );
+});
+
+test("V2 Stage-1 prompt forks the frozen prompt only to raise identity-lead recall", () => {
+  // The vision/region/candidate contract stays identical to the frozen reference.
+  assert.match(V2_HYBRID_STAGE1_PROMPT, /SEE → QUESTION/);
+  assert.match(V2_HYBRID_STAGE1_PROMPT, /identity_context_needed/);
+  assert.match(
+    V2_HYBRID_STAGE1_PROMPT,
+    /Create highlightable regions with normalized coordinates/,
+  );
+
+  // Only the identity paragraph diverged from the immutable frozen prompt.
+  assert.notEqual(V2_HYBRID_STAGE1_PROMPT, FROZEN_V1_STAGE1_PROMPT);
+  assert.doesNotMatch(
+    FROZEN_V1_STAGE1_PROMPT,
+    /UNVERIFIED VISUAL LEAD/,
+    "frozen prompt must remain untouched",
+  );
+
+  // Recall-oriented identity guidance, tied to identity-dependent candidates,
+  // permitting a moderate-confidence unverified lead because Luna now verifies it.
+  assert.match(
+    V2_HYBRID_STAGE1_PROMPT,
+    /review every candidate you marked identity_context_needed/i,
+  );
+  assert.match(V2_HYBRID_STAGE1_PROMPT, /UNVERIFIED VISUAL LEAD/);
+  assert.match(V2_HYBRID_STAGE1_PROMPT, /moderate confidence/i);
+  assert.match(V2_HYBRID_STAGE1_PROMPT, /uncertainty is expected/i);
+
+  // Anti-hallucination guards are preserved.
+  assert.match(
+    V2_HYBRID_STAGE1_PROMPT,
+    /empty identity_hypotheses array when the visible evidence supports no plausible specific identity/i,
+  );
+  assert.match(
+    V2_HYBRID_STAGE1_PROMPT,
+    /at most one best hypothesis per distinct subject/i,
+  );
+  assert.match(V2_HYBRID_STAGE1_PROMPT, /never dress a generic category/i);
 });
 
 test("V2 Luna request passes only relevant identity hypotheses as unverified leads", () => {
@@ -406,6 +450,25 @@ test("V2 Luna request passes only relevant identity hypotheses as unverified lea
   );
 });
 
+test("V2 keeps the strict Stage-1 schema: well-formed hypotheses parse, invariant violations still throw", () => {
+  // A moderate-confidence hypothesis linked to an identity-dependent candidate is valid.
+  assert.doesNotThrow(() => DiscoveryStage1Schema.parse(stage1));
+
+  // verification_would_help true but no relevant_question_ids violates the contract and
+  // must still fail closed — the recall change did not weaken validation.
+  const violating: DiscoveryStage1 = {
+    ...stage1,
+    identity_hypotheses: [
+      {
+        ...stage1.identity_hypotheses[0]!,
+        verification_would_help: true,
+        relevant_question_ids: [],
+      },
+    ],
+  };
+  assert.throws(() => DiscoveryStage1Schema.parse(violating));
+});
+
 test("research instructions make identity resolution an explicit first responsibility with a three-way conclusion and a lookalike-safety bar", () => {
   assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /first responsibility/i);
   assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /ESTABLISHED/);
@@ -415,18 +478,12 @@ test("research instructions make identity resolution an explicit first responsib
     V2_HYBRID_RESEARCH_INSTRUCTIONS,
     /distinguishes it from plausible lookalikes/i,
   );
-  assert.match(
-    V2_HYBRID_RESEARCH_INSTRUCTIONS,
-    /never enough to establish/i,
-  );
+  assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /never enough to establish/i);
   assert.match(
     V2_HYBRID_RESEARCH_INSTRUCTIONS,
     /do not promote the hypothesis to fact/i,
   );
-  assert.match(
-    V2_HYBRID_RESEARCH_INSTRUCTIONS,
-    /never use it in your answer/i,
-  );
+  assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /never use it in your answer/i);
 });
 
 test("identity-dependent candidates receive the establish-or-reject-first instruction; identity-independent candidates do not", () => {
@@ -480,7 +537,7 @@ test("mocked end-to-end V2 is Sol image to Luna search to Sol image with no iden
   assert.equal(responseRequests.length, 3);
   assert.equal(chatRequests[0]?.model, FROZEN_V1_STAGE1_MODEL);
   assert.equal(chatRequests[0]?.reasoning_effort, "medium");
-  assert.equal(chatRequests[0]?.messages[0]?.content, FROZEN_V1_STAGE1_PROMPT);
+  assert.equal(chatRequests[0]?.messages[0]?.content, V2_HYBRID_STAGE1_PROMPT);
   assert.match(JSON.stringify(chatRequests[0]), /image_url.*high/);
   assert.ok(
     responseRequests.every(
@@ -663,10 +720,7 @@ test("A: an ESTABLISHED identity conclusion carries evidence-backed sources into
   assert.equal(c1Result?.status, "answered");
   assert.match(c1Result?.finding ?? "", /IDENTITY ESTABLISHED/);
   assert.ok((c1Result?.sources.length ?? 0) > 0);
-  assert.equal(
-    c1Result?.sources[0]?.url,
-    "https://example.com/established",
-  );
+  assert.equal(c1Result?.sources[0]?.url, "https://example.com/established");
 });
 
 test("B: an UNRESOLVED identity conclusion is not promoted to fact and safely degrades to INSUFFICIENT", async () => {
@@ -745,10 +799,7 @@ test("E: a generic source about the proposed subject cannot substitute for candi
     (item) => item.candidate_id === "c1",
   );
   assert.equal(c1Result?.sources[0]?.url, "https://example.com/c1");
-  assert.match(
-    V2_HYBRID_RESEARCH_INSTRUCTIONS,
-    /never enough to establish/i,
-  );
+  assert.match(V2_HYBRID_RESEARCH_INSTRUCTIONS, /never enough to establish/i);
 });
 
 test("global OpenAI configuration failure remains fatal", async () => {

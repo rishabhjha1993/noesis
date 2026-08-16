@@ -10,18 +10,31 @@ import {
   FROZEN_V1_REASONING_EFFORT,
   FROZEN_V1_RESEARCH_INSTRUCTIONS,
   FROZEN_V1_STAGE1_MODEL,
+  FROZEN_V1_STAGE1_PROMPT,
   FROZEN_V1_STAGE3_MODEL,
   buildFrozenV1ResearchRequest,
 } from "./discoveryFrozenV1";
 
 export const V2_HYBRID_VARIANT = "v2-hybrid";
 export const V2_HYBRID_ENGINE_VERSION = "discovery-engine-v2-hybrid";
-export const V2_HYBRID_CACHE_REVISION = "v2-hybrid-v3";
+export const V2_HYBRID_CACHE_REVISION = "v2-hybrid-v4";
 export const V2_HYBRID_STAGE1_MODEL = FROZEN_V1_STAGE1_MODEL;
 export const V2_HYBRID_RESEARCH_MODEL = "gpt-5.6-luna";
 export const V2_HYBRID_STAGE3_MODEL = FROZEN_V1_STAGE3_MODEL;
 export const V2_HYBRID_REASONING_EFFORT = FROZEN_V1_REASONING_EFFORT;
 export const V2_HYBRID_RESEARCH_MAX_CONCURRENCY = 3;
+
+// The frozen V1 Stage-1 prompt's single conservative identity paragraph, replaced
+// verbatim below so the rest of the vision/region/candidate contract stays byte-identical
+// with the immutable frozen reference.
+const FROZEN_V1_STAGE1_IDENTITY_PARAGRAPH = `Optionally propose a small set of identity_hypotheses. These are visual hypotheses, never verified facts. Each must include concrete visible evidence, supporting regions, any observed labels or numbers, confidence, and the exact question ids that verified identity would materially help. Return an empty identity_hypotheses array when the image does not support a useful hypothesis. Do not identify an image merely because naming the subject might be interesting.`;
+
+const V2_HYBRID_STAGE1_IDENTITY_PARAGRAPH = `After forming candidates, review every candidate you marked identity_context_needed and ask: does the visible evidence suggest a plausible exact place, building, object, figure, map, artwork, diagram, or instrument identity that would materially help investigate this candidate? When it does, propose that single best identity as an UNVERIFIED VISUAL LEAD, even at moderate confidence. Downstream research will attempt to establish or reject each lead, so surface a plausible lead rather than omit it merely because you are uncertain; uncertainty is expected and is not a reason to return nothing. Each identity_hypothesis is a visual hypothesis, never a verified fact, and must include concrete visible evidence, supporting regions, any observed labels or numbers, a calibrated confidence, verification_would_help set true, and the exact question ids that establishing the identity would materially help. Combine multiple independent, discriminative visible clues — coastline or boundary form, distinctive geometry, topology, spatial relationships, labels, numbers — when they jointly narrow the identity, and state the most specific falsifiable identity those clues justify without adding specificity they do not support. Propose at most one best hypothesis per distinct subject; do not list speculative alternatives hoping one is right. Return an empty identity_hypotheses array when the visible evidence supports no plausible specific identity, and never dress a generic category (for example "an integrated circuit" or "a satellite image") up as an exact identity or name a subject merely because naming it might be interesting.`;
+
+export const V2_HYBRID_STAGE1_PROMPT = FROZEN_V1_STAGE1_PROMPT.replace(
+  FROZEN_V1_STAGE1_IDENTITY_PARAGRAPH,
+  V2_HYBRID_STAGE1_IDENTITY_PARAGRAPH,
+);
 
 export const V2_HYBRID_RESEARCH_INSTRUCTIONS = `${FROZEN_V1_RESEARCH_INSTRUCTIONS}
 

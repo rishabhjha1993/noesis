@@ -11,12 +11,14 @@ import {
   DiscoveryStage1DraftSchema,
   DiscoveryStage1Schema,
   evaluateResearchGate,
+  DiscoverySourceValidationError,
   identityApplicableCandidateIds,
   reconcileDiscoveryStage1References,
   validateIdentityVerification,
   validateDiscoveryOutput,
   validateResearchResults,
   type Discovery,
+  type DiscoverySourceValidationDetail,
   type DiscoveryCandidate,
   type DiscoveryInspection,
   type DiscoveryIdentityVerification,
@@ -475,6 +477,7 @@ export interface DiscoveryFailureDiagnostic {
   research_validation_category?: DiscoveryBatchValidationCategory;
   safe_validation_message?: string;
   affected_candidate_ids?: string[];
+  source_validation_detail?: DiscoverySourceValidationDetail;
   stage1_reconciliation?: DiscoveryStage1ReconciliationDiagnostics;
   validation_diagnostics_version?: string;
   validation_issues?: DiscoveryBatchValidationIssue[];
@@ -856,6 +859,19 @@ function safeFailureMessage(category: DiscoveryFailureCategory): string {
   }
 }
 
+function extractSourceValidationDetail(
+  error: unknown,
+): DiscoverySourceValidationDetail | null {
+  if (error instanceof DiscoverySourceValidationError) return error.detail;
+  if (
+    error instanceof Error &&
+    error.cause instanceof DiscoverySourceValidationError
+  ) {
+    return error.cause.detail;
+  }
+  return null;
+}
+
 function createFailureDiagnostic(
   error: unknown,
   state: DiscoveryExecutionState,
@@ -879,6 +895,8 @@ function createFailureDiagnostic(
     ...state.knownStage2Metrics,
     state.stage3,
   ].filter((metrics): metrics is DiscoveryStageMetrics => metrics !== null);
+
+  const sourceValidationDetail = extractSourceValidationDetail(error);
 
   return {
     engine_version: state.engineVersion,
@@ -905,6 +923,9 @@ function createFailureDiagnostic(
       : {}),
     ...(state.affectedCandidateIds
       ? { affected_candidate_ids: state.affectedCandidateIds }
+      : {}),
+    ...(sourceValidationDetail
+      ? { source_validation_detail: sourceValidationDetail }
       : {}),
     ...(state.stage1Reconciliation
       ? { stage1_reconciliation: state.stage1Reconciliation }

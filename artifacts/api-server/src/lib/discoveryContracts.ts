@@ -582,6 +582,89 @@ export function identityApplicableCandidateIds(
     .map((candidate) => candidate.id);
 }
 
+/**
+ * Canonicalize a source URL for provenance comparison. Shared by the V2 final
+ * validator and the batched research path so the two cannot diverge. Only http/https
+ * are accepted; the fragment is dropped; the known provider decoration
+ * `utm_source=chatgpt.com` is removed; remaining query params are order-normalized.
+ * Returns null for anything that cannot be safely parsed. This never strips arbitrary
+ * query parameters and never rewrites the path or host, so distinct pages, distinct
+ * meaningful query values, and foreign URLs remain distinct.
+ */
+export function canonicalSourceUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
+      return null;
+    parsed.hash = "";
+    if (parsed.searchParams.get("utm_source") === "chatgpt.com") {
+      parsed.searchParams.delete("utm_source");
+    }
+    parsed.searchParams.sort();
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+export interface DiscoverySafeSourceLocation {
+  valid: boolean;
+  /** scheme + host (URL.origin); excludes credentials, path, and query. */
+  origin?: string;
+  pathname?: string;
+  /** Query parameter NAMES only, sorted and de-duplicated. Values are never exposed. */
+  query_keys?: string[];
+}
+
+/**
+ * A sanitized projection of a source URL for developer/eval diagnostics. Deliberately
+ * excludes query parameter VALUES, credentials, fragments, and any raw model text.
+ */
+export function safeSourceLocation(value: string): DiscoverySafeSourceLocation {
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
+      return { valid: false };
+    return {
+      valid: true,
+      origin: parsed.origin,
+      pathname: parsed.pathname,
+      query_keys: [...new Set([...parsed.searchParams.keys()])].sort(),
+    };
+  } catch {
+    return { valid: false };
+  }
+}
+
+export type DiscoverySourceValidationReason =
+  | "CANONICAL_MISMATCH"
+  | "CROSS_CANDIDATE_SOURCE"
+  | "UNKNOWN_SOURCE"
+  | "INVALID_URL";
+
+export interface DiscoverySourceValidationDetail {
+  discovery_id: string;
+  reason: DiscoverySourceValidationReason;
+  location: DiscoverySafeSourceLocation;
+  declared_candidate_ids: string[];
+  /** True when a canonical equivalent exists in some answered candidate's validated sources. */
+  canonical_equivalent_exists: boolean;
+  /** Answered candidate(s) that own the canonical equivalent, if any (else empty). */
+  owning_candidate_ids: string[];
+  /** Whether an owning candidate was declared by this discovery (always false on failure). */
+  owner_declared: boolean;
+  applicable_allowed_source_count: number;
+}
+
+export class DiscoverySourceValidationError extends Error {
+  readonly detail: DiscoverySourceValidationDetail;
+  constructor(message: string, detail: DiscoverySourceValidationDetail) {
+    super(message);
+    this.name = "DiscoverySourceValidationError";
+    this.detail = detail;
+  }
+}
+
 export function validateDiscoveryOutput(
   stage1: DiscoveryStage1,
   researchResults: DiscoveryResearchResult[],
@@ -597,6 +680,23 @@ export function validateDiscoveryOutput(
   const research = new Map(
     researchResults.map((result) => [result.candidate_id, result]),
   );
+  // Canonical URL -> answered candidate ids that own it, across ALL research results
+  // (declared or not). Used only to classify a source-ownership failure; it never
+  // widens what a discovery is allowed to cite.
+  const canonicalOwners = new Map<string, Set<string>>();
+  for (const result of researchResults) {
+    if (result.status !== "answered") continue;
+    for (const source of result.sources) {
+      const canonical = canonicalSourceUrl(source.url);
+      if (!canonical) continue;
+      let owners = canonicalOwners.get(canonical);
+      if (!owners) {
+        owners = new Set<string>();
+        canonicalOwners.set(canonical, owners);
+      }
+      owners.add(result.candidate_id);
+    }
+  }
   const identityApplicableCandidates = new Set(
     identityApplicableCandidateIdsOverride ??
       identityApplicableCandidateIds(stage1, identityVerification),
@@ -627,11 +727,18 @@ export function validateDiscoveryOutput(
       }
     }
 
-    const allowedSources = new Set<string>();
+    // Allowed sources are the CANONICAL forms owned by this discovery's declared
+    // answered candidates (plus applicable verified identity sources). Comparing
+    // canonical forms tolerates only harmless representation differences; distinct
+    // pages, distinct meaningful query values, and foreign URLs still fail.
+    const allowedCanonical = new Set<string>();
     for (const candidateId of draft.candidate_ids) {
       const result = research.get(candidateId);
       if (result?.status === "answered") {
-        for (const source of result.sources) allowedSources.add(source.url);
+        for (const source of result.sources) {
+          const canonical = canonicalSourceUrl(source.url);
+          if (canonical) allowedCanonical.add(canonical);
+        }
       }
     }
     if (identityVerification?.status === "verified") {
@@ -640,21 +747,28 @@ export function validateDiscoveryOutput(
       );
       if (identityIsRelevant) {
         for (const source of identityVerification.sources) {
-          allowedSources.add(source.url);
+          const canonical = canonicalSourceUrl(source.url);
+          if (canonical) allowedCanonical.add(canonical);
         }
       }
     }
 
     if (draft.provenance === "researched") {
-      if (draft.sources.length === 0 || allowedSources.size === 0) {
+      if (draft.sources.length === 0 || allowedCanonical.size === 0) {
         throw new Error(
           `Researched discovery ${draft.id} has no applicable validated research sources`,
         );
       }
       for (const source of draft.sources) {
-        if (!allowedSources.has(source.url)) {
-          throw new Error(
-            `Discovery ${draft.id} includes an unvalidated source URL`,
+        const canonical = canonicalSourceUrl(source.url);
+        if (!canonical || !allowedCanonical.has(canonical)) {
+          throw buildSourceValidationError(
+            draft.id,
+            [...draft.candidate_ids],
+            source.url,
+            canonical,
+            allowedCanonical.size,
+            canonicalOwners,
           );
         }
       }
@@ -674,7 +788,8 @@ export function validateDiscoveryOutput(
       draft.reinterpretation,
     ].join("\n");
     for (const match of userFacingText.matchAll(/https?:\/\/[^\s)\]}>,]+/g)) {
-      if (!allowedSources.has(match[0])) {
+      const canonical = canonicalSourceUrl(match[0]);
+      if (!canonical || !allowedCanonical.has(canonical)) {
         throw new Error(
           `Discovery ${draft.id} includes an unvalidated URL outside its sources`,
         );
@@ -687,6 +802,51 @@ export function validateDiscoveryOutput(
   }
 
   return { discoveries, discoveryCandidates };
+}
+
+/**
+ * Classify a source-ownership failure and attach a safe diagnostic. The failure is one of:
+ * INVALID_URL (not safely canonicalizable), CROSS_CANDIDATE_SOURCE (a canonical equivalent
+ * exists among answered research but only under an undeclared candidate), or UNKNOWN_SOURCE
+ * (no canonical equivalent anywhere in answered research). CANONICAL_MISMATCH is a
+ * classifier value only — after canonicalization a genuine canonical match passes and never
+ * reaches here. The message preserves the historical wording so failure categorization is
+ * unchanged; the structured `detail` carries no query values or raw model text.
+ */
+function buildSourceValidationError(
+  discoveryId: string,
+  declaredCandidateIds: string[],
+  rawUrl: string,
+  canonical: string | null,
+  applicableAllowedSourceCount: number,
+  canonicalOwners: Map<string, Set<string>>,
+): DiscoverySourceValidationError {
+  let reason: DiscoverySourceValidationReason;
+  let owningCandidateIds: string[] = [];
+  if (!canonical) {
+    reason = "INVALID_URL";
+  } else {
+    const owners = canonicalOwners.get(canonical);
+    if (owners && owners.size > 0) {
+      reason = "CROSS_CANDIDATE_SOURCE";
+      owningCandidateIds = [...owners].sort();
+    } else {
+      reason = "UNKNOWN_SOURCE";
+    }
+  }
+  return new DiscoverySourceValidationError(
+    `Discovery ${discoveryId} includes an unvalidated source URL`,
+    {
+      discovery_id: discoveryId,
+      reason,
+      location: safeSourceLocation(rawUrl),
+      declared_candidate_ids: declaredCandidateIds,
+      canonical_equivalent_exists: reason === "CROSS_CANDIDATE_SOURCE",
+      owning_candidate_ids: owningCandidateIds,
+      owner_declared: false,
+      applicable_allowed_source_count: applicableAllowedSourceCount,
+    },
+  );
 }
 
 const stringSchema = { type: "string", minLength: 1 } as const;

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   DiscoverySourceSchema,
+  canonicalSourceUrl,
   identityApplicableCandidateIds,
   validateResearchResults,
   type DiscoveryCandidate,
@@ -322,22 +323,6 @@ function findResultObjectRanges(
     objectStart = -1;
   }
   return ranges;
-}
-
-function canonicalSourceUrl(value: string): string | null {
-  try {
-    const parsed = new URL(value);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
-      return null;
-    parsed.hash = "";
-    if (parsed.searchParams.get("utm_source") === "chatgpt.com") {
-      parsed.searchParams.delete("utm_source");
-    }
-    parsed.searchParams.sort();
-    return parsed.toString();
-  } catch {
-    return null;
-  }
 }
 
 function schemaIssue(

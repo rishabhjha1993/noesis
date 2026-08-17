@@ -1,5 +1,8 @@
 import OpenAI from "openai";
-import type { ChatCompletion } from "openai/resources/chat/completions";
+import type {
+  ChatCompletion,
+  ChatCompletionCreateParamsNonStreaming,
+} from "openai/resources/chat/completions";
 import type {
   Response,
   ResponseCreateParamsNonStreaming,
@@ -84,6 +87,7 @@ import {
   V2_HYBRID_STAGE3_MODEL,
   buildV2HybridFinalRequest,
   buildV2HybridResearchRequest,
+  buildV2HybridStage1Request,
 } from "./discoveryHybridV2";
 
 export const DISCOVERY_ENGINE_VERSION = "discovery-engine-v1";
@@ -621,7 +625,7 @@ function emptyUsage(
   };
 }
 
-function normalizeChatUsage(
+export function normalizeChatUsage(
   response: ChatCompletion,
   latencyMs: number,
   provider?: DiscoveryUsageMetrics["provider"],
@@ -705,7 +709,7 @@ function countWebSearchCalls(response: Response): number {
     .length;
 }
 
-function stageMetrics(
+export function stageMetrics(
   usage: DiscoveryUsageMetrics,
   webSearchCalls = 0,
 ): DiscoveryStageMetrics {
@@ -2307,42 +2311,43 @@ async function runDiscoveryPipelineWithState(
     : DISCOVERY_REASONING_EFFORT;
   state.stageReached = "stage1";
   const stage1Started = Date.now();
-  const stage1Response = await openai.chat.completions.create({
-    model: modelAllocation.stage1,
-    reasoning_effort: reasoningEffort,
-    max_completion_tokens: 10000,
-    response_format: {
-      type: "json_schema",
-      json_schema: DISCOVERY_STAGE1_JSON_SCHEMA as unknown as {
-        name: string;
-        strict: boolean;
-        schema: Record<string, unknown>;
-      },
-    },
-    messages: [
-      {
-        role: "system",
-        content: isV2Hybrid
-          ? V2_HYBRID_STAGE1_PROMPT
-          : usesFrozenV1Semantics
-            ? FROZEN_V1_STAGE1_PROMPT
-            : STAGE1_PROMPT,
-      },
-      {
-        role: "user",
-        content: [
+  const stage1Request: ChatCompletionCreateParamsNonStreaming = isV2Hybrid
+    ? buildV2HybridStage1Request(imageDataUrl)
+    : {
+        model: modelAllocation.stage1,
+        reasoning_effort: reasoningEffort,
+        max_completion_tokens: 10000,
+        response_format: {
+          type: "json_schema",
+          json_schema: DISCOVERY_STAGE1_JSON_SCHEMA as unknown as {
+            name: string;
+            strict: boolean;
+            schema: Record<string, unknown>;
+          },
+        },
+        messages: [
           {
-            type: "text",
-            text: "Inspect this image and return only the grounded Stage 1 structure.",
+            role: "system",
+            content: usesFrozenV1Semantics
+              ? FROZEN_V1_STAGE1_PROMPT
+              : STAGE1_PROMPT,
           },
           {
-            type: "image_url",
-            image_url: { url: imageDataUrl, detail: "high" },
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Inspect this image and return only the grounded Stage 1 structure.",
+              },
+              {
+                type: "image_url",
+                image_url: { url: imageDataUrl, detail: "high" },
+              },
+            ],
           },
         ],
-      },
-    ],
-  });
+      };
+  const stage1Response = await openai.chat.completions.create(stage1Request);
   const stage1Usage = normalizeChatUsage(
     stage1Response,
     Date.now() - stage1Started,
